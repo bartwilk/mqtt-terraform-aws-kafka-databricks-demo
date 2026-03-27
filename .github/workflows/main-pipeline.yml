@@ -1,0 +1,320 @@
+name: main-pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment (dev/stage/prod)"
+        required: true
+        default: "dev"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT_NAME: mqtt-iot-pipeline
+  ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
+
+jobs:
+  # ===========================================================================
+  # 1. AWS infra: VPC, EKS, MSK, IoT Core, ECR, IoT→MSK bridge
+  # ===========================================================================
+  aws_infra:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: infra/aws
+        run: terraform init
+
+      - name: Terraform Fmt
+        working-directory: infra/aws
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        working-directory: infra/aws
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: infra/aws
+        env:
+          TF_VAR_aws_region:  ${{ env.AWS_REGION }}
+          TF_VAR_environment: ${{ env.ENVIRONMENT }}
+          TF_VAR_project:     ${{ env.PROJECT_NAME }}
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        working-directory: infra/aws
+        env:
+          TF_VAR_aws_region:  ${{ env.AWS_REGION }}
+          TF_VAR_environment: ${{ env.ENVIRONMENT }}
+          TF_VAR_project:     ${{ env.PROJECT_NAME }}
+        run: terraform apply -auto-approve tfplan
+
+  # ===========================================================================
+  # 2. Kafka topics + ACLs (Mongey provider, MSK SASL/IAM)
+  #    Needs MSK to exist from aws_infra job
+  # ===========================================================================
+  kafka_infra:
+    runs-on: ubuntu-latest
+    needs: aws_infra
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve MSK bootstrap brokers (SASL/IAM)
+        id: msk-bootstrap
+        run: |
+          set -euo pipefail
+
+          MSK_CLUSTER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-msk"
+          echo "Resolving MSK cluster ARN for cluster name: ${MSK_CLUSTER_NAME}"
+
+          CLUSTER_ARN=$(aws kafka list-clusters-v2 \
+            --cluster-name-filter "${MSK_CLUSTER_NAME}" \
+            --query "ClusterInfoList[0].ClusterArn" \
+            --output text)
+
+          if [ -z "$CLUSTER_ARN" ] || [ "$CLUSTER_ARN" = "None" ]; then
+            echo "Failed to resolve MSK cluster ARN for ${MSK_CLUSTER_NAME}"
+            exit 1
+          fi
+
+          echo "Cluster ARN: $CLUSTER_ARN"
+
+          BOOTSTRAP_SASL_IAM=$(aws kafka get-bootstrap-brokers \
+            --cluster-arn "$CLUSTER_ARN" \
+            --query "BootstrapBrokerStringSaslIam" \
+            --output text)
+
+          if [ -z "$BOOTSTRAP_SASL_IAM" ] || [ "$BOOTSTRAP_SASL_IAM" = "None" ]; then
+            echo "Failed to get BootstrapBrokerStringSaslIam for cluster $CLUSTER_ARN"
+            exit 1
+          fi
+
+          echo "Bootstrap SASL/IAM brokers: $BOOTSTRAP_SASL_IAM"
+          echo "KAFKA_BOOTSTRAP_BROKERS_IAM=$BOOTSTRAP_SASL_IAM" >> "$GITHUB_ENV"
+
+      - name: Terraform Init
+        working-directory: infra/kafka
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: infra/kafka
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: infra/kafka
+        env:
+          TF_VAR_aws_region:                  ${{ env.AWS_REGION }}
+          TF_VAR_kafka_bootstrap_brokers_iam: ${{ env.KAFKA_BOOTSTRAP_BROKERS_IAM }}
+          TF_VAR_iot_producer_principal:      ${{ secrets.KAFKA_IOT_PRINCIPAL }}
+          TF_VAR_eks_processor_principal:     ${{ secrets.KAFKA_EKS_PRINCIPAL }}
+          TF_VAR_databricks_principal:        ${{ secrets.KAFKA_DATABRICKS_PRINCIPAL }}
+          TF_VAR_project:                     ${{ env.PROJECT_NAME }}
+          TF_VAR_environment:                 ${{ env.ENVIRONMENT }}
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        working-directory: infra/kafka
+        env:
+          TF_VAR_aws_region:                  ${{ env.AWS_REGION }}
+          TF_VAR_kafka_bootstrap_brokers_iam: ${{ env.KAFKA_BOOTSTRAP_BROKERS_IAM }}
+          TF_VAR_iot_producer_principal:      ${{ secrets.KAFKA_IOT_PRINCIPAL }}
+          TF_VAR_eks_processor_principal:     ${{ secrets.KAFKA_EKS_PRINCIPAL }}
+          TF_VAR_databricks_principal:        ${{ secrets.KAFKA_DATABRICKS_PRINCIPAL }}
+          TF_VAR_project:                     ${{ env.PROJECT_NAME }}
+          TF_VAR_environment:                 ${{ env.ENVIRONMENT }}
+        run: terraform apply -auto-approve tfplan
+
+  # ===========================================================================
+  # 3. Databricks infra: UC catalog/schemas, cluster, jobs, notebooks
+  # ===========================================================================
+  databricks_infra:
+    runs-on: ubuntu-latest
+    needs: [aws_infra, kafka_infra]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Terraform Init
+        working-directory: infra/databricks
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: infra/databricks
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: infra/databricks
+        env:
+          TF_VAR_databricks_host:  ${{ secrets.DATABRICKS_HOST }}
+          TF_VAR_databricks_token: ${{ secrets.DATABRICKS_TOKEN }}
+          TF_VAR_environment:      ${{ env.ENVIRONMENT }}
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        working-directory: infra/databricks
+        env:
+          TF_VAR_databricks_host:  ${{ secrets.DATABRICKS_HOST }}
+          TF_VAR_databricks_token: ${{ secrets.DATABRICKS_TOKEN }}
+          TF_VAR_environment:      ${{ env.ENVIRONMENT }}
+        run: terraform apply -auto-approve tfplan
+
+  # ===========================================================================
+  # 4. Databricks SQL: apply dashboard views via Statement Execution API
+  # ===========================================================================
+  databricks_sql:
+    runs-on: ubuntu-latest
+    needs: databricks_infra
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python deps
+        run: pip install requests
+
+      - name: Apply Databricks dashboard SQL
+        env:
+          DATABRICKS_HOST:             ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN:            ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_SQL_WAREHOUSE_ID: ${{ secrets.DATABRICKS_SQL_WAREHOUSE_ID }}
+        run: |
+          python - << 'EOF'
+          import os, json, re
+          import requests
+
+          host = os.environ["DATABRICKS_HOST"].rstrip("/")
+          token = os.environ["DATABRICKS_TOKEN"]
+          warehouse_id = os.environ["DATABRICKS_SQL_WAREHOUSE_ID"]
+
+          sql_file = "databricks/sql/iot_dashboard_views.sql"
+          with open(sql_file, "r", encoding="utf-8") as f:
+            sql = f.read()
+
+          # Strip line comments and split on semicolons
+          sql = re.sub(r"--.*", "", sql)
+          statements = [s.strip() for s in sql.split(";") if s.strip()]
+
+          headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+          }
+
+          for stmt in statements:
+            payload = {
+              "statement": stmt,
+              "warehouse_id": warehouse_id,
+              "wait_timeout": "30s",
+              "disposition": "INLINE",
+            }
+            print("Executing SQL statement:\n", stmt[:200], "\n---")
+            resp = requests.post(
+              f"{host}/api/2.0/sql/statements",
+              headers=headers,
+              data=json.dumps(payload),
+            )
+            try:
+              resp.raise_for_status()
+            except Exception:
+              print("Error executing statement:", resp.text)
+              raise
+
+            body = resp.json()
+            print("Status:", body.get("status", {}))
+          EOF
+
+  # ===========================================================================
+  # 5. App build & deploy: Docker → ECR → EKS
+  #    Runs after aws_infra and kafka_infra (cluster + topics must exist)
+  # ===========================================================================
+  app_deploy:
+    runs-on: ubuntu-latest
+    needs: [aws_infra, kafka_infra]
+
+    env:
+      ECR_REPOSITORY: mqtt-iot-pipeline/iot-processor
+      IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (App deploy)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_APP_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        run: |
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG ./services/iot-processor
+
+      - name: Tag & push image
+        run: |
+          REGISTRY=${{ steps.ecr-login.outputs.registry }}
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Update EKS deployment
+        run: |
+          set -euo pipefail
+
+          CLUSTER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-eks"
+          echo "Updating kubeconfig for cluster: $CLUSTER_NAME"
+          aws eks update-kubeconfig --region $AWS_REGION --name "$CLUSTER_NAME"
+
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/iot-processor-configmap.yaml
+
+          sed "s|ACCOUNT_ID|${ACCOUNT_ID}|g" k8s/iot-processor-serviceaccount.yaml | kubectl apply -f -
+
+          sed "s|ACCOUNT_ID|${ACCOUNT_ID}|g; s|:latest|:${IMAGE_TAG}|g" k8s/iot-processor-deployment.yaml | kubectl apply -f -
+
+          kubectl -n iot rollout status deployment/iot-processor --timeout=300s

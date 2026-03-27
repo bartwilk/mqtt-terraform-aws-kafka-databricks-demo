@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iot-processor
+  namespace: iot
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: iot-processor
+  template:
+    metadata:
+      labels:
+        app: iot-processor
+    spec:
+      serviceAccountName: iot-processor-sa
+      containers:
+        - name: iot-processor
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/mqtt-iot-pipeline/iot-processor:latest
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-connection
+                  key: bootstrap_servers
+            - name: KAFKA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-connection
+                  key: username
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-connection
+                  key: password
+            - name: KAFKA_IN_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-processor-config
+                  key: KAFKA_IN_TOPIC
+            - name: KAFKA_OUT_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: iot-processor-config
+                  key: KAFKA_OUT_TOPIC
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import os; open('/tmp/healthy', 'w').close() if os.path.exists('/tmp/healthy') else None"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import os; exit(0)"
+            initialDelaySeconds: 10
+            periodSeconds: 10
