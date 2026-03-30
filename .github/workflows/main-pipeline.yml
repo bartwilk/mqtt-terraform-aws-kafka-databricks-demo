@@ -54,6 +54,60 @@ jobs:
         working-directory: infra/aws
         run: terraform validate
 
+      - name: Import existing MSK security group rules (idempotent)
+        working-directory: infra/aws
+        env:
+          TF_VAR_aws_region:  ${{ env.AWS_REGION }}
+          TF_VAR_environment: ${{ env.ENVIRONMENT }}
+          TF_VAR_project:     ${{ env.PROJECT_NAME }}
+        run: |
+          set -euo pipefail
+          SG_NAME="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-msk"
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=${SG_NAME}" \
+            --query "SecurityGroups[0].GroupId" --output text --region ${{ env.AWS_REGION }})
+
+          if [ -z "$SG_ID" ] || [ "$SG_ID" = "None" ]; then
+            echo "Security group not found, skipping import"
+            exit 0
+          fi
+
+          echo "Found SG: $SG_ID — importing existing rules if not already in state"
+
+          RULES=$(aws ec2 describe-security-group-rules \
+            --filters "Name=group-id,Values=${SG_ID}" \
+            --query "SecurityGroupRules[*].{ID:SecurityGroupRuleId,Port:FromPort,Egress:IsEgress}" \
+            --output json --region ${{ env.AWS_REGION }})
+
+          import_if_missing() {
+            local addr=$1 rule_id=$2
+            if terraform state show "$addr" > /dev/null 2>&1; then
+              echo "$addr already in state, skipping"
+            else
+              echo "Importing $addr ($rule_id)"
+              terraform import -var="aws_region=${{ env.AWS_REGION }}" \
+                -var="environment=${{ env.ENVIRONMENT }}" \
+                -var="project=${{ env.PROJECT_NAME }}" \
+                "$addr" "$rule_id" || true
+            fi
+          }
+
+          while IFS= read -r rule; do
+            rule_id=$(echo "$rule" | jq -r '.ID')
+            port=$(echo "$rule" | jq -r '.Port')
+            egress=$(echo "$rule" | jq -r '.Egress')
+
+            if [ "$egress" = "true" ]; then
+              import_if_missing "aws_vpc_security_group_egress_rule.msk_all" "$rule_id"
+            elif [ "$port" = "9094" ]; then
+              import_if_missing "aws_vpc_security_group_ingress_rule.msk_tls" "$rule_id"
+            elif [ "$port" = "9096" ]; then
+              import_if_missing "aws_vpc_security_group_ingress_rule.msk_sasl_scram" "$rule_id"
+            elif [ "$port" = "9098" ]; then
+              import_if_missing "aws_vpc_security_group_ingress_rule.msk_sasl_iam" "$rule_id"
+            fi
+          done < <(echo "$RULES" | jq -c '.[]')
+
       - name: Terraform Plan
         working-directory: infra/aws
         env:
