@@ -34,43 +34,46 @@ resource "aws_security_group" "msk" {
   description = "MSK broker security group"
   vpc_id      = module.vpc.vpc_id
 
-  ingress {
-    from_port   = 9094
-    to_port     = 9094
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
-    description = "Kafka TLS from VPC"
-  }
-
-  ingress {
-    from_port   = 9096
-    to_port     = 9096
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
-    description = "Kafka SASL/SCRAM from VPC"
-  }
-
-  ingress {
-    from_port   = 9098
-    to_port     = 9098
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
-    description = "Kafka SASL/IAM from VPC"
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   tags = {
     Name        = "${var.project}-${var.environment}-msk"
     Project     = var.project
     Environment = var.environment
     Terraform   = "true"
   }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "msk_tls" {
+  security_group_id = aws_security_group.msk.id
+  cidr_ipv4         = var.vpc_cidr
+  from_port         = 9094
+  to_port           = 9094
+  ip_protocol       = "tcp"
+  description       = "Kafka TLS from VPC"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "msk_sasl_scram" {
+  security_group_id = aws_security_group.msk.id
+  cidr_ipv4         = var.vpc_cidr
+  from_port         = 9096
+  to_port           = 9096
+  ip_protocol       = "tcp"
+  description       = "Kafka SASL/SCRAM from VPC"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "msk_sasl_iam" {
+  security_group_id = aws_security_group.msk.id
+  cidr_ipv4         = var.vpc_cidr
+  from_port         = 9098
+  to_port           = 9098
+  ip_protocol       = "tcp"
+  description       = "Kafka SASL/IAM from VPC"
+}
+
+resource "aws_vpc_security_group_egress_rule" "msk_all" {
+  security_group_id = aws_security_group.msk.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+  description       = "Allow all outbound"
 }
 
 resource "aws_msk_cluster" "msk" {
