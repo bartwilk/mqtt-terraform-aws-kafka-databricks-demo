@@ -43,6 +43,14 @@ resource "aws_security_group" "msk" {
   }
 
   ingress {
+    from_port   = 9096
+    to_port     = 9096
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+    description = "Kafka SASL/SCRAM from VPC"
+  }
+
+  ingress {
     from_port   = 9098
     to_port     = 9098
     protocol    = "tcp"
@@ -122,7 +130,9 @@ resource "aws_msk_configuration" "msk" {
 }
 
 locals {
-  msk_bootstrap_brokers_tls      = aws_msk_cluster.msk.bootstrap_brokers_tls
+  # MSK with SASL/SCRAM enabled populates bootstrap_brokers_sasl_scram (port 9096),
+  # not bootstrap_brokers_tls (port 9094, TLS-only). Use sasl_scram for IoT bridge.
+  msk_bootstrap_brokers_tls      = aws_msk_cluster.msk.bootstrap_brokers_sasl_scram
   msk_bootstrap_brokers_sasl_iam = aws_msk_cluster.msk.bootstrap_brokers_sasl_iam
   msk_security_group_id          = aws_security_group.msk.id
 }
@@ -187,6 +197,7 @@ module "iot_msk_bridge" {
   msk_security_group_id     = local.msk_security_group_id
 
   kafka_topic           = "iot_raw"
+  kafka_port            = 9096
   mqtt_rule_name        = replace("${var.project}_${var.environment}_mqtt_to_msk", "-", "_")
   mqtt_rule_description = "MQTT sensors/# to MSK topic iot_raw"
   mqtt_sql              = "SELECT * FROM 'sensors/#'"
