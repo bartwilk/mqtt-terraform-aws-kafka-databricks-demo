@@ -26,22 +26,80 @@ module "vpc" {
 }
 
 # ---------------------------------------------------------------------------
-# MSK (Kafka)
+# MSK (Kafka) — direct resources (no module, avoids AWS provider < 6.0 cap)
 # ---------------------------------------------------------------------------
 
-module "msk" {
-  source  = "terraform-aws-modules/msk-kafka-cluster/aws"
-  version = "~> 3.1"
+resource "aws_security_group" "msk" {
+  name        = "${var.project}-${var.environment}-msk"
+  description = "MSK broker security group"
+  vpc_id      = module.vpc.vpc_id
 
-  name                   = "${var.project}-${var.environment}-msk"
+  ingress {
+    from_port   = 9094
+    to_port     = 9094
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+    description = "Kafka TLS from VPC"
+  }
+
+  ingress {
+    from_port   = 9098
+    to_port     = 9098
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+    description = "Kafka SASL/IAM from VPC"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "${var.project}-${var.environment}-msk"
+    Project     = var.project
+    Environment = var.environment
+    Terraform   = "true"
+  }
+}
+
+resource "aws_msk_cluster" "msk" {
+  cluster_name           = "${var.project}-${var.environment}-msk"
   kafka_version          = "3.6.0"
   number_of_broker_nodes = 3
 
-  broker_node_client_subnets = module.vpc.private_subnets
-  broker_node_instance_type  = "kafka.m5.large"
+  broker_node_group_info {
+    instance_type   = "kafka.m5.large"
+    client_subnets  = module.vpc.private_subnets
+    security_groups = [aws_security_group.msk.id]
 
-  encryption_in_transit_client_broker = "TLS"
-  encryption_at_rest_kms_key_arn      = null
+    storage_info {
+      ebs_storage_info {
+        volume_size = 100
+      }
+    }
+  }
+
+  encryption_info {
+    encryption_in_transit {
+      client_broker = "TLS"
+      in_cluster    = true
+    }
+  }
+
+  client_authentication {
+    sasl {
+      scram = true
+      iam   = true
+    }
+  }
+
+  configuration_info {
+    arn      = aws_msk_configuration.msk.arn
+    revision = aws_msk_configuration.msk.latest_revision
+  }
 
   tags = {
     Project     = var.project
@@ -50,13 +108,32 @@ module "msk" {
   }
 }
 
+resource "aws_msk_configuration" "msk" {
+  name              = "${var.project}-${var.environment}-msk-config"
+  kafka_versions    = ["3.6.0"]
+
+  server_properties = <<-EOF
+    auto.create.topics.enable=false
+    default.replication.factor=3
+    min.insync.replicas=2
+    num.partitions=12
+    log.retention.hours=168
+  EOF
+}
+
+locals {
+  msk_bootstrap_brokers_tls     = aws_msk_cluster.msk.bootstrap_brokers_tls
+  msk_bootstrap_brokers_sasl_iam = aws_msk_cluster.msk.bootstrap_brokers_sasl_iam
+  msk_security_group_id         = aws_security_group.msk.id
+}
+
 # ---------------------------------------------------------------------------
 # EKS
 # ---------------------------------------------------------------------------
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.8"
+  version = "~> 20.24"
 
   cluster_name    = "${var.project}-${var.environment}-eks"
   cluster_version = "1.32"
@@ -106,8 +183,8 @@ module "iot_msk_bridge" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnets
 
-  msk_bootstrap_brokers_tls = module.msk.bootstrap_brokers_tls
-  msk_security_group_id     = module.msk.security_group_id
+  msk_bootstrap_brokers_tls = local.msk_bootstrap_brokers_tls
+  msk_security_group_id     = local.msk_security_group_id
 
   kafka_topic           = "iot_raw"
   mqtt_rule_name        = "${var.project}-${var.environment}-mqtt-to-msk"

@@ -1,11 +1,11 @@
 output "msk_bootstrap_brokers_tls" {
   description = "TLS bootstrap brokers for MSK (used by EKS app and IoT bridge)"
-  value       = module.msk.bootstrap_brokers_tls
+  value       = aws_msk_cluster.msk.bootstrap_brokers_tls
 }
 
 output "msk_bootstrap_brokers_sasl_iam" {
   description = "SASL/IAM bootstrap brokers for MSK (used by Kafka Terraform provider)"
-  value       = module.msk.bootstrap_brokers_sasl_iam
+  value       = aws_msk_cluster.msk.bootstrap_brokers_sasl_iam
 }
 
 output "iot_processor_ecr_repository_url" {
