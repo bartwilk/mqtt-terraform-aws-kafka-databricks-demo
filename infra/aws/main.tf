@@ -109,8 +109,8 @@ resource "aws_msk_cluster" "msk" {
 }
 
 resource "aws_msk_configuration" "msk" {
-  name              = "${var.project}-${var.environment}-msk-config"
-  kafka_versions    = ["3.6.0"]
+  name           = "${var.project}-${var.environment}-msk-config"
+  kafka_versions = ["3.6.0"]
 
   server_properties = <<-EOF
     auto.create.topics.enable=false
@@ -122,9 +122,9 @@ resource "aws_msk_configuration" "msk" {
 }
 
 locals {
-  msk_bootstrap_brokers_tls     = aws_msk_cluster.msk.bootstrap_brokers_tls
+  msk_bootstrap_brokers_tls      = aws_msk_cluster.msk.bootstrap_brokers_tls
   msk_bootstrap_brokers_sasl_iam = aws_msk_cluster.msk.bootstrap_brokers_sasl_iam
-  msk_security_group_id         = aws_security_group.msk.id
+  msk_security_group_id          = aws_security_group.msk.id
 }
 
 # ---------------------------------------------------------------------------
