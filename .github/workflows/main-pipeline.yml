@@ -18,6 +18,7 @@ env:
   AWS_REGION: us-east-1
   PROJECT_NAME: mqtt-iot-pipeline
   ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
+  STATE_BUCKET: ${{ vars.STATE_BUCKET_NAME }}
 
 jobs:
   # ===========================================================================
@@ -43,7 +44,7 @@ jobs:
 
       - name: Terraform Init
         working-directory: infra/aws
-        run: terraform init
+        run: terraform init -backend-config="bucket=${{ env.STATE_BUCKET }}"
 
       - name: Terraform Fmt
         working-directory: infra/aws
@@ -128,7 +129,7 @@ jobs:
 
       - name: Terraform Init
         working-directory: infra/kafka
-        run: terraform init
+        run: terraform init -backend-config="bucket=${{ env.STATE_BUCKET }}"
 
       - name: Terraform Validate
         working-directory: infra/kafka
@@ -177,7 +178,7 @@ jobs:
 
       - name: Terraform Init
         working-directory: infra/databricks
-        run: terraform init
+        run: terraform init -backend-config="bucket=${{ env.STATE_BUCKET }}"
 
       - name: Terraform Validate
         working-directory: infra/databricks

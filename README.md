@@ -4,6 +4,61 @@ End-to-end IoT streaming and ML pipeline demo. Covers device data ingestion via 
 
 ---
 
+## AWS Initial Setup (start here)
+
+Bootstrap is a **one-time GitHub Actions workflow** (`bootstrap.yml`) that creates all the AWS resources the main pipeline depends on. It uses static AWS credentials for this single job only; everything after that uses OIDC.
+
+### Step 1 — Create a bootstrap IAM user in AWS
+
+In the AWS Console → **IAM → Users → Create user** (`github-bootstrap`):
+- Attach policy: `AdministratorAccess` (needed to create IAM, S3, DynamoDB, OIDC provider)
+- Create an **access key** (type: CLI) and save the key ID + secret
+
+This user is only needed to run bootstrap once. You can delete it afterwards.
+
+### Step 2 — Add GitHub secrets and variables
+
+Repo → **Settings → Secrets and variables → Actions:**
+
+**Secrets:**
+
+| Secret | Value |
+|--------|-------|
+| `AWS_BOOTSTRAP_ACCESS_KEY_ID` | Access key ID from step 1 |
+| `AWS_BOOTSTRAP_SECRET_ACCESS_KEY` | Secret access key from step 1 |
+
+**Variables** (not secrets — visible in logs):
+
+| Variable | Value |
+|----------|-------|
+| `STATE_BUCKET_NAME` | A globally unique S3 bucket name, e.g. `mycompany-mqtt-tf-state` |
+
+### Step 3 — Run the bootstrap workflow
+
+Repo → **Actions → bootstrap → Run workflow.**
+
+This provisions:
+- S3 bucket (versioned, encrypted, public access blocked) for Terraform remote state
+- DynamoDB table (`terraform-state-locks`) for state locking
+- GitHub OIDC identity provider in IAM
+- `github-actions-terraform-role` — assumed by `aws_infra` and `kafka_infra` jobs
+- `github-actions-app-deploy-role` — assumed by the `app_deploy` job (ECR + EKS scoped)
+
+### Step 4 — Add the role ARN secrets
+
+The bootstrap workflow prints the role ARNs in its final step. Copy them and add two more secrets:
+
+| Secret | Value |
+|--------|-------|
+| `AWS_TERRAFORM_ROLE_ARN` | `terraform_role_arn` output from bootstrap run |
+| `AWS_APP_ROLE_ARN` | `app_deploy_role_arn` output from bootstrap run |
+
+The remaining secrets (`DATABRICKS_HOST`, `DATABRICKS_TOKEN`, etc.) are listed in the [Required GitHub Secrets](#required-github-secrets) section below.
+
+> **Note:** The `STATE_BUCKET_NAME` variable is read by all pipeline jobs via `vars.STATE_BUCKET_NAME` and passed to `terraform init -backend-config="bucket=..."` — no bucket name is hardcoded in the backend files.
+
+---
+
 ## Architecture
 
 ```

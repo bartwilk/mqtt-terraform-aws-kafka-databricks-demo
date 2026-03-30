@@ -1,0 +1,56 @@
+name: bootstrap
+
+# Run manually only — creates the AWS resources that the main pipeline depends on.
+# Requires static AWS credentials (bootstrap IAM user) stored as GitHub secrets.
+# After this runs once successfully, the main pipeline uses OIDC for all auth.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Configure AWS credentials (static — bootstrap only)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_BOOTSTRAP_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_BOOTSTRAP_SECRET_ACCESS_KEY }}
+          aws-region:            us-east-1
+
+      - name: Terraform Init (local state)
+        working-directory: infra/bootstrap
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: infra/bootstrap
+        env:
+          TF_VAR_state_bucket_name: ${{ vars.STATE_BUCKET_NAME }}
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: infra/bootstrap
+        env:
+          TF_VAR_state_bucket_name: ${{ vars.STATE_BUCKET_NAME }}
+        run: terraform apply -auto-approve tfplan
+
+      - name: Print outputs
+        working-directory: infra/bootstrap
+        run: |
+          echo "=== Bootstrap outputs ==="
+          terraform output
+          echo ""
+          echo "Next steps:"
+          echo "  1. Add AWS_TERRAFORM_ROLE_ARN secret = $(terraform output -raw terraform_role_arn)"
+          echo "  2. Add AWS_APP_ROLE_ARN secret       = $(terraform output -raw app_deploy_role_arn)"
