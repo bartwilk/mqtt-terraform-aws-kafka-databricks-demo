@@ -187,7 +187,7 @@ module "iot_msk_bridge" {
   msk_security_group_id     = local.msk_security_group_id
 
   kafka_topic           = "iot_raw"
-  mqtt_rule_name        = "${var.project}-${var.environment}-mqtt-to-msk"
+  mqtt_rule_name        = replace("${var.project}_${var.environment}_mqtt_to_msk", "-", "_")
   mqtt_rule_description = "MQTT sensors/# to MSK topic iot_raw"
   mqtt_sql              = "SELECT * FROM 'sensors/#'"
 
