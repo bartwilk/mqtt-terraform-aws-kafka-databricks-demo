@@ -31,7 +31,7 @@ module "vpc" {
 
 module "msk" {
   source  = "terraform-aws-modules/msk-kafka-cluster/aws"
-  version = "~> 3.4"
+  version = "~> 3.1"
 
   name                   = "${var.project}-${var.environment}-msk"
   kafka_version          = "3.6.0"
