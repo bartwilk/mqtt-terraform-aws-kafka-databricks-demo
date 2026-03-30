@@ -100,8 +100,11 @@ mqtt-terraform-aws-kafka-databricks-demo/
 │       ├── app.py                      # Confluent Kafka consumer/producer
 │       ├── Dockerfile                  # python:3.11-slim, non-root UID 1000
 │       ├── requirements.txt
-│       ├── requirements-dev.txt
-│       └── tests/                      # pytest suite (13 cases)
+│       ├── requirements-dev.txt        # runtime deps + pytest==8.3.5
+│       └── tests/
+│           ├── conftest.py             # env var patches + confluent_kafka mock
+│           ├── test_normalize_event.py # 13 cases: schema, risk formula, validation
+│           └── test_main_loop.py       # 12 cases: poll pipeline, errors, resilience
 ├── k8s/
 │   ├── namespace.yaml
 │   ├── iot-processor-configmap.yaml
@@ -221,8 +224,15 @@ aws_infra
 
 ```bash
 pip install -r services/iot-processor/requirements-dev.txt
-pytest services/iot-processor/tests/
+pytest services/iot-processor/tests/ -v
 ```
+
+25 tests across two files:
+
+| File | Cases | Covers |
+|------|-------|--------|
+| `test_normalize_event.py` | 13 | Schema enforcement, risk-score formula, field coercion, `ValueError` on missing required fields |
+| `test_main_loop.py` | 12 | Consumer subscription, `None` poll (no-op), valid message → produce pipeline, `_PARTITION_EOF` (silent skip), non-EOF Kafka errors (logged + skipped), invalid JSON / missing fields / non-numeric values (all caught, loop continues), risk-score boundary values in produced payload |
 
 ### Estimated Deployment Time
 
