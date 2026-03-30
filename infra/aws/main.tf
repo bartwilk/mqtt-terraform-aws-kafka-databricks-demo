@@ -56,7 +56,7 @@ module "msk" {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.24"
+  version = "~> 20.8"
 
   cluster_name    = "${var.project}-${var.environment}-eks"
   cluster_version = "1.32"
