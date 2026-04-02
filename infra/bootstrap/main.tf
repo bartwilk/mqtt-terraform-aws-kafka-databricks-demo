@@ -12,8 +12,8 @@ resource "aws_s3_bucket" "tf_state" {
   force_destroy = false
 
   tags = {
-    Project     = var.project
-    ManagedBy   = "terraform-bootstrap"
+    Project   = var.project
+    ManagedBy = "terraform-bootstrap"
   }
 }
 
@@ -243,8 +243,8 @@ data "aws_iam_policy_document" "app_deploy" {
     resources = ["*"]
   }
   statement {
-    effect    = "Allow"
-    actions   = [
+    effect = "Allow"
+    actions = [
       "eks:DescribeCluster",
       "eks:ListClusters",
     ]

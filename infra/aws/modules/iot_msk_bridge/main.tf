@@ -19,11 +19,11 @@ resource "aws_security_group" "iot_msk_enis" {
   vpc_id      = var.vpc_id
 
   egress {
-    from_port                = var.kafka_port
-    to_port                  = var.kafka_port
-    protocol                 = "tcp"
-    security_groups          = [var.msk_security_group_id]
-    description              = "Allow IoT ENIs to reach MSK brokers"
+    from_port       = var.kafka_port
+    to_port         = var.kafka_port
+    protocol        = "tcp"
+    security_groups = [var.msk_security_group_id]
+    description     = "Allow IoT ENIs to reach MSK brokers"
   }
 
   egress {

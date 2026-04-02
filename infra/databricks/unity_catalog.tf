@@ -1,8 +1,8 @@
 resource "databricks_catalog" "iot" {
-  name             = "iot"
-  comment          = "IoT streaming data catalog"
-  isolation_mode   = "ISOLATED"
-  storage_root     = var.catalog_storage_root
+  name           = "iot"
+  comment        = "IoT streaming data catalog"
+  isolation_mode = "ISOLATED"
+  storage_root   = var.catalog_storage_root
 }
 
 resource "databricks_schema" "bronze" {
