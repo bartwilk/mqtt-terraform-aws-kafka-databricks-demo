@@ -32,6 +32,7 @@ Repo → **Settings → Secrets and variables → Actions:**
 | Variable | Value |
 |----------|-------|
 | `STATE_BUCKET_NAME` | A globally unique S3 bucket name, e.g. `mycompany-mqtt-tf-state` |
+| `DATABRICKS_UC_S3_BUCKET` | Unity Catalog S3 bucket name, e.g. `mqtt-iot-pipeline-dev-unity-catalog` |
 
 ### Step 3 — Run the bootstrap workflow
 
@@ -122,8 +123,8 @@ mqtt-terraform-aws-kafka-databricks-demo/
 │   │   ├── backend.tf                  # S3 state backend + DynamoDB locking
 │   │   ├── providers.tf                # AWS provider configuration
 │   │   ├── variables.tf                # aws_region, environment, project, vpc_cidr
-│   │   ├── main.tf                     # Module calls: vpc, msk, eks, ecr, iot_msk_bridge
-│   │   ├── outputs.tf                  # MSK brokers, ECR URL, EKS cluster name
+│   │   ├── main.tf                     # VPC, MSK, EKS, ECR, IoT bridge, Unity Catalog S3 + IAM
+│   │   ├── outputs.tf                  # MSK brokers, ECR URL, EKS cluster name, UC bucket + role
 │   │   ├── envs/
 │   │   │   ├── dev.tfvars
 │   │   │   └── prod.tfvars
@@ -139,8 +140,8 @@ mqtt-terraform-aws-kafka-databricks-demo/
 │       ├── backend.tf                  # Separate S3 state backend
 │       ├── providers.tf                # Databricks provider (~1.62.0)
 │       ├── variables.tf
-│       ├── unity_catalog.tf            # iot catalog + bronze/silver/gold schemas
-│       ├── main.tf                     # Streaming cluster (LTS runtime, 2 workers)
+│       ├── unity_catalog.tf            # Storage credential, external location, iot catalog + schemas
+│       ├── main.tf                     # Streaming cluster (LTS runtime, 2 workers, USER_ISOLATION)
 │       └── jobs.tf                     # 4 notebook uploads + orchestrated job
 ├── databricks/
 │   ├── notebooks/
@@ -179,7 +180,8 @@ mqtt-terraform-aws-kafka-databricks-demo/
 | Ingestion | AWS IoT Core | Topic rule `sensors/#`, Kafka action, VPC destination |
 | Registry | AWS ECR | Scan-on-push, immutable tags |
 | Secrets | AWS Secrets Manager | MSK SASL creds, 7-day recovery window |
-| Catalog | Databricks Unity Catalog | `iot` catalog, bronze/silver/gold schemas |
+| Catalog | Databricks Unity Catalog | `iot` catalog, bronze/silver/gold schemas, S3 storage credential + external location |
+| Storage | S3 (Unity Catalog) | Versioned, KMS-encrypted bucket with public access blocked — managed storage for Delta tables |
 | State | S3 + DynamoDB | 3 separate state files: aws / kafka / databricks |
 | CI Kafka runner | ARC on EKS | Self-hosted GitHub Actions runner inside the VPC — runs `infra/kafka` Terraform against private MSK brokers (scales to 0 when idle) |
 
@@ -201,7 +203,7 @@ aws_infra
 |-----|--------|-------------|
 | `aws_infra` | `ubuntu-latest` | Two-step `terraform apply` in `infra/aws` — first targets all AWS resources (VPC, EKS, MSK, IoT Core, ECR), then runs a full apply (including ARC Helm releases) so the Helm provider can authenticate against the newly-created cluster |
 | `kafka_infra` | `kafka-infra-runner` (self-hosted, inside VPC) | Resolves MSK bootstrap brokers via AWS CLI, then `terraform apply` in `infra/kafka` — runs inside the EKS cluster so it can reach private MSK brokers directly |
-| `databricks_infra` | `ubuntu-latest` | `terraform apply` in `infra/databricks` — cluster, Unity Catalog, notebooks, job |
+| `databricks_infra` | `ubuntu-latest` | `terraform apply` in `infra/databricks` — storage credential, external location, Unity Catalog, cluster (USER_ISOLATION), notebooks, job |
 | `databricks_sql` | `ubuntu-latest` | Runs each SQL view via Databricks Statement Execution API 2.0 |
 | `app_deploy` | `ubuntu-latest` | Docker build → ECR push → `kubectl apply` + rollout wait |
 
@@ -237,12 +239,14 @@ aws_infra
 - TLS in transit everywhere (IoT Core → MSK, EKS → MSK, Databricks → MSK)
 - KMS encryption at rest for MSK data volumes (automatic key rotation)
 - VPC isolation — MSK and EKS in private subnets only
-- EKS API endpoint is private-only (no public access)
+- EKS API endpoint has both public and private access enabled
 - Security group egress restricted to VPC CIDR + DNS (MSK) and Kafka port + HTTPS (IoT ENIs)
+- Unity Catalog S3 bucket encrypted with KMS, versioned, public access blocked
 
 **Authentication & authorization:**
 - SASL/SCRAM-SHA-512 Kafka authentication for IoT and EKS clients
 - MSK IAM auth for Databricks (no static credentials)
+- Cross-account IAM role for Databricks Unity Catalog (ExternalId-conditioned trust)
 - IRSA (IAM Roles for Service Accounts) — no static credentials in EKS pods
 - GitHub OIDC — no long-lived AWS access keys in CI secrets
 - Scoped IAM policies — Terraform role uses a custom policy (not AdministratorAccess)
@@ -270,7 +274,7 @@ aws_infra
 ### Prerequisites
 
 - AWS account with permissions to create VPC, EKS, MSK, IoT Core, ECR, IAM, Secrets Manager
-- Databricks workspace (AWS-hosted) with Unity Catalog enabled and a worker environment configured (classic compute VPC or serverless)
+- Databricks workspace (AWS-hosted) with Unity Catalog enabled
 - Terraform >= 1.6.0 installed locally
 - `kubectl` and `aws` CLI configured
 - GitHub repository with Actions enabled
@@ -285,7 +289,9 @@ aws_infra
 | `DATABRICKS_HOST` | Databricks workspace URL |
 | `DATABRICKS_TOKEN` | Databricks personal access token |
 | `DATABRICKS_SQL_WAREHOUSE_ID` | Warehouse ID for SQL view execution |
+| `DATABRICKS_ACCOUNT_ID` | Databricks account ID — used as `ExternalId` in the cross-account IAM trust for Unity Catalog |
 | `DATABRICKS_CATALOG_STORAGE_ROOT` | S3 location for Unity Catalog managed storage, e.g. `s3://my-bucket/unity-catalog/iot` |
+| `DATABRICKS_UC_ROLE_ARN` | IAM role ARN for Unity Catalog cross-account S3 access (output from `aws_infra` after first apply) |
 | `MSK_SCRAM_USERNAME` | MSK SASL/SCRAM username — Terraform creates the Secrets Manager secret and registers it with MSK |
 | `MSK_SCRAM_PASSWORD` | MSK SASL/SCRAM password |
 | `KAFKA_IOT_PRINCIPAL` | Kafka ACL principal for IoT Core producer, e.g. `User:iot_msk_producer` — must match `MSK_SCRAM_USERNAME` |
@@ -297,10 +303,11 @@ aws_infra
 - [ ] Complete the AWS initial setup (bootstrap workflow) above — sets up S3, DynamoDB, OIDC, IAM roles
 - [ ] Add `STATE_BUCKET_NAME` GitHub variable — injected at `terraform init`, no edits to `backend.tf` needed
 - [ ] Create a GitHub PAT with `repo` scope and add as `ARC_GITHUB_TOKEN` — used by ARC to register the self-hosted runner into your repo
-- [ ] Create the MSK SASL secret in Secrets Manager before applying `infra/aws` (or set `create_secret = true` in the `iot_msk_bridge` module)
-- [ ] Set `KAFKA_IOT_PRINCIPAL`, `KAFKA_EKS_PRINCIPAL`, and `KAFKA_DATABRICKS_PRINCIPAL` GitHub Secrets — Terraform reads these to configure Kafka ACLs. The `User:` prefix is required. The username in `KAFKA_IOT_PRINCIPAL` and `KAFKA_EKS_PRINCIPAL` must match the SCRAM credentials in Secrets Manager / the `kafka-connection` K8s Secret respectively
+- [ ] Set `MSK_SCRAM_USERNAME` and `MSK_SCRAM_PASSWORD` secrets — Terraform creates the Secrets Manager secret, encrypts it with KMS, and registers it with MSK automatically
+- [ ] Set `KAFKA_IOT_PRINCIPAL`, `KAFKA_EKS_PRINCIPAL`, and `KAFKA_DATABRICKS_PRINCIPAL` secrets — Terraform reads these to configure Kafka ACLs. The `User:` prefix is required
+- [ ] Set `DATABRICKS_ACCOUNT_ID`, `DATABRICKS_UC_ROLE_ARN` (after first `aws_infra` apply), and `DATABRICKS_UC_S3_BUCKET` variable
 - [ ] Run `terraform init` in `infra/aws`, `infra/kafka`, and `infra/databricks`; commit the generated `.terraform.lock.hcl` files for reproducible provider versions
-- [ ] Create a `kafka-connection` Kubernetes Secret in the `iot` namespace after the EKS cluster is up (keys: `bootstrap_servers`, `username`, `password`)
+- [ ] The `kafka-connection` K8s Secret is created automatically by the `app_deploy` job (reads from Secrets Manager)
 
 ### Local Test
 
