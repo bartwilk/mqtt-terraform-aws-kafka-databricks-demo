@@ -48,3 +48,15 @@ variable "app_deploy_role_arn" {
   description = "IAM role ARN for app deploy (needs K8s access for kubectl)"
   type        = string
 }
+
+variable "msk_scram_username" {
+  description = "MSK SASL/SCRAM username for IoT bridge and EKS processor"
+  type        = string
+  sensitive   = true
+}
+
+variable "msk_scram_password" {
+  description = "MSK SASL/SCRAM password for IoT bridge and EKS processor"
+  type        = string
+  sensitive   = true
+}

@@ -67,6 +67,8 @@ jobs:
           TF_VAR_github_repo:         ${{ github.repository }}
           TF_VAR_arc_github_token:    ${{ secrets.ARC_GITHUB_TOKEN }}
           TF_VAR_app_deploy_role_arn: ${{ secrets.AWS_APP_ROLE_ARN }}
+          TF_VAR_msk_scram_username:  ${{ secrets.MSK_SCRAM_USERNAME }}
+          TF_VAR_msk_scram_password:  ${{ secrets.MSK_SCRAM_PASSWORD }}
         run: |
           set -euo pipefail
           SG_NAME="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-msk"
@@ -121,6 +123,8 @@ jobs:
           TF_VAR_github_repo:         ${{ github.repository }}
           TF_VAR_arc_github_token:    ${{ secrets.ARC_GITHUB_TOKEN }}
           TF_VAR_app_deploy_role_arn: ${{ secrets.AWS_APP_ROLE_ARN }}
+          TF_VAR_msk_scram_username:  ${{ secrets.MSK_SCRAM_USERNAME }}
+          TF_VAR_msk_scram_password:  ${{ secrets.MSK_SCRAM_PASSWORD }}
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply (EKS first, then ARC)
@@ -133,6 +137,8 @@ jobs:
           TF_VAR_github_repo:         ${{ github.repository }}
           TF_VAR_arc_github_token:    ${{ secrets.ARC_GITHUB_TOKEN }}
           TF_VAR_app_deploy_role_arn: ${{ secrets.AWS_APP_ROLE_ARN }}
+          TF_VAR_msk_scram_username:  ${{ secrets.MSK_SCRAM_USERNAME }}
+          TF_VAR_msk_scram_password:  ${{ secrets.MSK_SCRAM_PASSWORD }}
         run: |
           # Step 1: Apply EKS (and all other AWS resources) first so the Helm
           # provider can authenticate before deploying ARC into the cluster.
@@ -434,7 +440,7 @@ jobs:
             --query "BootstrapBrokerStringSaslScram" \
             --output text)
 
-          SECRET_NAME="${PROJECT_NAME}-${ENVIRONMENT}-msk-sasl"
+          SECRET_NAME="AmazonMSK_${PROJECT_NAME}-${ENVIRONMENT}-msk-sasl"
           CREDS_JSON=$(aws secretsmanager get-secret-value \
             --secret-id "$SECRET_NAME" \
             --query "SecretString" \

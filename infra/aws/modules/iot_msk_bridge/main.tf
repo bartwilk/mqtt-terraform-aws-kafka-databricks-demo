@@ -124,7 +124,7 @@ resource "aws_secretsmanager_secret" "msk_sasl" {
 
   name = coalesce(
     var.secret_name,
-    "${local.name_prefix}-msk-sasl"
+    "AmazonMSK_${local.name_prefix}-msk-sasl"
   )
 
   description = "MSK SASL SCRAM credentials for IoT Kafka rule"
@@ -151,6 +151,15 @@ resource "aws_secretsmanager_secret_version" "msk_sasl" {
     username = var.kafka_username
     password = var.kafka_password
   })
+}
+
+resource "aws_msk_scram_secret_association" "msk_sasl" {
+  count = var.create_secret && var.msk_cluster_arn != null ? 1 : 0
+
+  cluster_arn     = var.msk_cluster_arn
+  secret_arn_list = [aws_secretsmanager_secret.msk_sasl[0].arn]
+
+  depends_on = [aws_secretsmanager_secret_version.msk_sasl]
 }
 
 # --------------------------

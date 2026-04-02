@@ -64,6 +64,12 @@ variable "tags" {
 
 # ----- Secrets Manager integration -----
 
+variable "msk_cluster_arn" {
+  description = "ARN of the MSK cluster — used for SCRAM secret association"
+  type        = string
+  default     = null
+}
+
 variable "create_secret" {
   description = "If true, this module creates a Secrets Manager secret for MSK SASL credentials. If false, existing_secret_arn must be provided."
   type        = bool

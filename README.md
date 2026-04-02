@@ -286,8 +286,10 @@ aws_infra
 | `DATABRICKS_TOKEN` | Databricks personal access token |
 | `DATABRICKS_SQL_WAREHOUSE_ID` | Warehouse ID for SQL view execution |
 | `DATABRICKS_CATALOG_STORAGE_ROOT` | S3 location for Unity Catalog managed storage, e.g. `s3://my-bucket/unity-catalog/iot` |
-| `KAFKA_IOT_PRINCIPAL` | Kafka ACL principal for IoT Core producer, e.g. `User:iot_msk_producer` — must match the SCRAM username in the MSK Secrets Manager secret |
-| `KAFKA_EKS_PRINCIPAL` | Kafka ACL principal for EKS processor, e.g. `User:eks_iot_processor` — must match the SCRAM username used by the `kafka-connection` K8s Secret |
+| `MSK_SCRAM_USERNAME` | MSK SASL/SCRAM username — Terraform creates the Secrets Manager secret and registers it with MSK |
+| `MSK_SCRAM_PASSWORD` | MSK SASL/SCRAM password |
+| `KAFKA_IOT_PRINCIPAL` | Kafka ACL principal for IoT Core producer, e.g. `User:iot_msk_producer` — must match `MSK_SCRAM_USERNAME` |
+| `KAFKA_EKS_PRINCIPAL` | Kafka ACL principal for EKS processor, e.g. `User:eks_iot_processor` — must match `MSK_SCRAM_USERNAME` |
 | `KAFKA_DATABRICKS_PRINCIPAL` | Kafka ACL principal for Databricks, e.g. `User:arn:aws:iam::123456789012:role/databricks-msk-role` |
 
 ### Pre-Deployment Checklist

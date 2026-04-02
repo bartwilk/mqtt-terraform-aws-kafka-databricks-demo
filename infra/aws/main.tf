@@ -295,10 +295,10 @@ module "iot_msk_bridge" {
   mqtt_rule_description = "MQTT sensors/# to MSK topic iot_raw"
   mqtt_sql              = "SELECT * FROM 'sensors/#'"
 
-  # Recommended: manage secret outside Terraform and pass ARN here.
-  # Set create_secret = true and supply kafka_username/kafka_password for first-time setup.
-  create_secret       = false
-  existing_secret_arn = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.project}-${var.environment}-msk-sasl"
+  create_secret   = true
+  msk_cluster_arn = aws_msk_cluster.msk.arn
+  kafka_username  = var.msk_scram_username
+  kafka_password  = var.msk_scram_password
 
   tags = {
     CostCenter      = "iot-streaming"
