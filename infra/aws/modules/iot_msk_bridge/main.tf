@@ -128,6 +128,7 @@ resource "aws_secretsmanager_secret" "msk_sasl" {
   )
 
   description = "MSK SASL SCRAM credentials for IoT Kafka rule"
+  kms_key_id  = var.msk_kms_key_arn
 
   recovery_window_in_days = 7
 

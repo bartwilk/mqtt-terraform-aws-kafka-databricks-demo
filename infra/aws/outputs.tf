@@ -32,3 +32,18 @@ output "iot_topic_rule_name" {
   description = "Name of the IoT Core topic rule bridging MQTT to MSK"
   value       = module.iot_msk_bridge.iot_topic_rule_name
 }
+
+output "unity_catalog_s3_bucket" {
+  description = "S3 bucket name for Databricks Unity Catalog managed storage"
+  value       = aws_s3_bucket.unity_catalog.id
+}
+
+output "unity_catalog_s3_bucket_arn" {
+  description = "S3 bucket ARN for Databricks Unity Catalog managed storage"
+  value       = aws_s3_bucket.unity_catalog.arn
+}
+
+output "databricks_unity_catalog_role_arn" {
+  description = "IAM role ARN for Databricks Unity Catalog cross-account access"
+  value       = aws_iam_role.databricks_unity_catalog.arn
+}

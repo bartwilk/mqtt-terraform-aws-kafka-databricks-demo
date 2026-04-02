@@ -69,6 +69,7 @@ jobs:
           TF_VAR_app_deploy_role_arn: ${{ secrets.AWS_APP_ROLE_ARN }}
           TF_VAR_msk_scram_username:  ${{ secrets.MSK_SCRAM_USERNAME }}
           TF_VAR_msk_scram_password:  ${{ secrets.MSK_SCRAM_PASSWORD }}
+          TF_VAR_databricks_account_id: ${{ secrets.DATABRICKS_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           SG_NAME="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-msk"
@@ -125,6 +126,7 @@ jobs:
           TF_VAR_app_deploy_role_arn: ${{ secrets.AWS_APP_ROLE_ARN }}
           TF_VAR_msk_scram_username:  ${{ secrets.MSK_SCRAM_USERNAME }}
           TF_VAR_msk_scram_password:  ${{ secrets.MSK_SCRAM_PASSWORD }}
+          TF_VAR_databricks_account_id: ${{ secrets.DATABRICKS_ACCOUNT_ID }}
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply (EKS first, then ARC)
@@ -139,6 +141,7 @@ jobs:
           TF_VAR_app_deploy_role_arn: ${{ secrets.AWS_APP_ROLE_ARN }}
           TF_VAR_msk_scram_username:  ${{ secrets.MSK_SCRAM_USERNAME }}
           TF_VAR_msk_scram_password:  ${{ secrets.MSK_SCRAM_PASSWORD }}
+          TF_VAR_databricks_account_id: ${{ secrets.DATABRICKS_ACCOUNT_ID }}
         run: |
           # Step 1: Apply EKS (and all other AWS resources) first so the Helm
           # provider can authenticate before deploying ARC into the cluster.
@@ -155,7 +158,13 @@ jobs:
             -target=aws_vpc_security_group_egress_rule.msk_vpc \
             -target=aws_vpc_security_group_egress_rule.msk_dns \
             -target=module.iot_processor_ecr \
-            -target=module.iot_msk_bridge
+            -target=module.iot_msk_bridge \
+            -target=aws_s3_bucket.unity_catalog \
+            -target=aws_s3_bucket_versioning.unity_catalog \
+            -target=aws_s3_bucket_server_side_encryption_configuration.unity_catalog \
+            -target=aws_s3_bucket_public_access_block.unity_catalog \
+            -target=aws_iam_role.databricks_unity_catalog \
+            -target=aws_iam_role_policy.databricks_unity_catalog
           # Step 2: Full apply (including ARC Helm releases). Do NOT use the
           # saved plan file — state changed in step 1, making it stale.
           terraform apply -auto-approve
@@ -301,6 +310,8 @@ jobs:
           TF_VAR_databricks_token:         ${{ secrets.DATABRICKS_TOKEN }}
           TF_VAR_environment:              ${{ env.ENVIRONMENT }}
           TF_VAR_catalog_storage_root:     ${{ secrets.DATABRICKS_CATALOG_STORAGE_ROOT }}
+          TF_VAR_unity_catalog_role_arn:   ${{ secrets.DATABRICKS_UC_ROLE_ARN }}
+          TF_VAR_unity_catalog_s3_bucket:  ${{ vars.DATABRICKS_UC_S3_BUCKET }}
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply
@@ -311,6 +322,8 @@ jobs:
           TF_VAR_databricks_token:         ${{ secrets.DATABRICKS_TOKEN }}
           TF_VAR_environment:              ${{ env.ENVIRONMENT }}
           TF_VAR_catalog_storage_root:     ${{ secrets.DATABRICKS_CATALOG_STORAGE_ROOT }}
+          TF_VAR_unity_catalog_role_arn:   ${{ secrets.DATABRICKS_UC_ROLE_ARN }}
+          TF_VAR_unity_catalog_s3_bucket:  ${{ vars.DATABRICKS_UC_S3_BUCKET }}
         run: terraform apply -auto-approve tfplan
 
   # ===========================================================================

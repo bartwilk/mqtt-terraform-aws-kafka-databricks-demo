@@ -70,6 +70,12 @@ variable "msk_cluster_arn" {
   default     = null
 }
 
+variable "msk_kms_key_arn" {
+  description = "ARN of the KMS key used by MSK — required for SCRAM secrets encryption"
+  type        = string
+  default     = null
+}
+
 variable "create_secret" {
   description = "If true, this module creates a Secrets Manager secret for MSK SASL credentials. If false, existing_secret_arn must be provided."
   type        = bool

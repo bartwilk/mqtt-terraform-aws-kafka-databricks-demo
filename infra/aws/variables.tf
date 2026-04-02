@@ -60,3 +60,8 @@ variable "msk_scram_password" {
   type        = string
   sensitive   = true
 }
+
+variable "databricks_account_id" {
+  description = "Databricks account ID used as ExternalId for cross-account IAM trust"
+  type        = string
+}

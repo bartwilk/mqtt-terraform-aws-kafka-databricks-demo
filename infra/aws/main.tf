@@ -297,6 +297,7 @@ module "iot_msk_bridge" {
 
   create_secret   = true
   msk_cluster_arn = aws_msk_cluster.msk.arn
+  msk_kms_key_arn = aws_kms_key.msk.arn
   kafka_username  = var.msk_scram_username
   kafka_password  = var.msk_scram_password
 
@@ -305,4 +306,106 @@ module "iot_msk_bridge" {
     Owner           = "data-platform"
     Confidentiality = "internal"
   }
+}
+
+# ---------------------------------------------------------------------------
+# Unity Catalog — S3 bucket + IAM role for Databricks managed storage
+# ---------------------------------------------------------------------------
+
+resource "aws_s3_bucket" "unity_catalog" {
+  bucket        = "${var.project}-${var.environment}-unity-catalog"
+  force_destroy = false
+
+  tags = {
+    Project     = var.project
+    Environment = var.environment
+    Terraform   = "true"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "unity_catalog" {
+  bucket = aws_s3_bucket.unity_catalog.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "unity_catalog" {
+  bucket = aws_s3_bucket.unity_catalog.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.msk.arn
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "unity_catalog" {
+  bucket                  = aws_s3_bucket.unity_catalog.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_iam_role" "databricks_unity_catalog" {
+  name = "${var.project}-${var.environment}-databricks-uc"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::414351767826:root" # Databricks AWS account
+        }
+        Action = "sts:AssumeRole"
+        Condition = {
+          StringEquals = {
+            "sts:ExternalId" = var.databricks_account_id
+          }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Project     = var.project
+    Environment = var.environment
+    Terraform   = "true"
+  }
+}
+
+resource "aws_iam_role_policy" "databricks_unity_catalog" {
+  name = "${var.project}-${var.environment}-databricks-uc"
+  role = aws_iam_role.databricks_unity_catalog.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
+        ]
+        Resource = [
+          aws_s3_bucket.unity_catalog.arn,
+          "${aws_s3_bucket.unity_catalog.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey*"
+        ]
+        Resource = [aws_kms_key.msk.arn]
+      }
+    ]
+  })
 }
