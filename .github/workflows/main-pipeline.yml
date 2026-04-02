@@ -168,16 +168,19 @@ jobs:
       - name: Install tools (AWS CLI + Terraform)
         run: |
           set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/.local/bin" "$HOME/.local/aws-cli"
           # AWS CLI
           if ! command -v aws &>/dev/null; then
             curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
             unzip -q /tmp/awscli.zip -d /tmp
-            /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
+            /tmp/aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli"
           fi
           # Terraform
           if ! command -v terraform &>/dev/null; then
             curl -fsSL "https://releases.hashicorp.com/terraform/1.9.0/terraform_1.9.0_linux_amd64.zip" -o /tmp/tf.zip
-            unzip -q /tmp/tf.zip -d /usr/local/bin
+            unzip -q /tmp/tf.zip -d "$HOME/.local/bin"
           fi
 
       - name: Configure AWS credentials (OIDC)
