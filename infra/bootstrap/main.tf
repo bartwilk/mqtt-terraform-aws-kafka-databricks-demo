@@ -255,6 +255,21 @@ data "aws_iam_policy_document" "app_deploy" {
     actions   = ["sts:GetCallerIdentity"]
     resources = ["*"]
   }
+  # Resolve MSK brokers for kafka-connection K8s secret
+  statement {
+    effect = "Allow"
+    actions = [
+      "kafka:GetBootstrapBrokers",
+      "kafka:ListClustersV2",
+    ]
+    resources = ["*"]
+  }
+  # Read SCRAM credentials from Secrets Manager
+  statement {
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_policy" "app_deploy" {

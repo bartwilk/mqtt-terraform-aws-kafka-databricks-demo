@@ -422,6 +422,33 @@ jobs:
 
           sed "s|ACCOUNT_ID|${ACCOUNT_ID}|g" k8s/iot-processor-serviceaccount.yaml | kubectl apply -f -
 
+          # Create/update kafka-connection secret from MSK + Secrets Manager
+          MSK_CLUSTER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-msk"
+          CLUSTER_ARN=$(aws kafka list-clusters-v2 \
+            --cluster-name-filter "${MSK_CLUSTER_NAME}" \
+            --query "ClusterInfoList[0].ClusterArn" \
+            --output text)
+
+          BOOTSTRAP_BROKERS=$(aws kafka get-bootstrap-brokers \
+            --cluster-arn "$CLUSTER_ARN" \
+            --query "BootstrapBrokerStringSaslScram" \
+            --output text)
+
+          SECRET_NAME="${PROJECT_NAME}-${ENVIRONMENT}-msk-sasl"
+          CREDS_JSON=$(aws secretsmanager get-secret-value \
+            --secret-id "$SECRET_NAME" \
+            --query "SecretString" \
+            --output text)
+
+          KAFKA_USER=$(echo "$CREDS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['username'])")
+          KAFKA_PASS=$(echo "$CREDS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])")
+
+          kubectl -n iot create secret generic kafka-connection \
+            --from-literal=bootstrap_servers="$BOOTSTRAP_BROKERS" \
+            --from-literal=username="$KAFKA_USER" \
+            --from-literal=password="$KAFKA_PASS" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
           sed "s|ACCOUNT_ID|${ACCOUNT_ID}|g; s|:latest|:${IMAGE_TAG}|g" k8s/iot-processor-deployment.yaml | kubectl apply -f -
 
           kubectl -n iot rollout status deployment/iot-processor --timeout=300s
