@@ -43,3 +43,8 @@ variable "arc_github_token" {
   type        = string
   sensitive   = true
 }
+
+variable "app_deploy_role_arn" {
+  description = "IAM role ARN for app deploy (needs K8s access for kubectl)"
+  type        = string
+}

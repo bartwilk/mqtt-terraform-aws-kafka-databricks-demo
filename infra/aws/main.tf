@@ -192,6 +192,20 @@ module "eks" {
 
   enable_irsa = true
 
+  access_entries = {
+    app_deploy = {
+      principal_arn = var.app_deploy_role_arn
+      policy_associations = {
+        cluster_admin = {
+          policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = {
+            type = "cluster"
+          }
+        }
+      }
+    }
+  }
+
   tags = {
     Project     = var.project
     Environment = var.environment

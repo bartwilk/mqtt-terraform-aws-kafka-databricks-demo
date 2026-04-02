@@ -61,11 +61,12 @@ jobs:
       - name: Import existing MSK security group rules (idempotent)
         working-directory: infra/aws
         env:
-          TF_VAR_aws_region:        ${{ env.AWS_REGION }}
-          TF_VAR_environment:       ${{ env.ENVIRONMENT }}
-          TF_VAR_project:           ${{ env.PROJECT_NAME }}
-          TF_VAR_github_repo:       ${{ github.repository }}
-          TF_VAR_arc_github_token:  ${{ secrets.ARC_GITHUB_TOKEN }}
+          TF_VAR_aws_region:          ${{ env.AWS_REGION }}
+          TF_VAR_environment:         ${{ env.ENVIRONMENT }}
+          TF_VAR_project:             ${{ env.PROJECT_NAME }}
+          TF_VAR_github_repo:         ${{ github.repository }}
+          TF_VAR_arc_github_token:    ${{ secrets.ARC_GITHUB_TOKEN }}
+          TF_VAR_app_deploy_role_arn: ${{ secrets.AWS_APP_ROLE_ARN }}
         run: |
           set -euo pipefail
           SG_NAME="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-msk"
@@ -114,22 +115,24 @@ jobs:
       - name: Terraform Plan
         working-directory: infra/aws
         env:
-          TF_VAR_aws_region:        ${{ env.AWS_REGION }}
-          TF_VAR_environment:       ${{ env.ENVIRONMENT }}
-          TF_VAR_project:           ${{ env.PROJECT_NAME }}
-          TF_VAR_github_repo:       ${{ github.repository }}
-          TF_VAR_arc_github_token:  ${{ secrets.ARC_GITHUB_TOKEN }}
+          TF_VAR_aws_region:          ${{ env.AWS_REGION }}
+          TF_VAR_environment:         ${{ env.ENVIRONMENT }}
+          TF_VAR_project:             ${{ env.PROJECT_NAME }}
+          TF_VAR_github_repo:         ${{ github.repository }}
+          TF_VAR_arc_github_token:    ${{ secrets.ARC_GITHUB_TOKEN }}
+          TF_VAR_app_deploy_role_arn: ${{ secrets.AWS_APP_ROLE_ARN }}
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply (EKS first, then ARC)
         if: github.ref == 'refs/heads/main'
         working-directory: infra/aws
         env:
-          TF_VAR_aws_region:        ${{ env.AWS_REGION }}
-          TF_VAR_environment:       ${{ env.ENVIRONMENT }}
-          TF_VAR_project:           ${{ env.PROJECT_NAME }}
-          TF_VAR_github_repo:       ${{ github.repository }}
-          TF_VAR_arc_github_token:  ${{ secrets.ARC_GITHUB_TOKEN }}
+          TF_VAR_aws_region:          ${{ env.AWS_REGION }}
+          TF_VAR_environment:         ${{ env.ENVIRONMENT }}
+          TF_VAR_project:             ${{ env.PROJECT_NAME }}
+          TF_VAR_github_repo:         ${{ github.repository }}
+          TF_VAR_arc_github_token:    ${{ secrets.ARC_GITHUB_TOKEN }}
+          TF_VAR_app_deploy_role_arn: ${{ secrets.AWS_APP_ROLE_ARN }}
         run: |
           # Step 1: Apply EKS (and all other AWS resources) first so the Helm
           # provider can authenticate before deploying ARC into the cluster.
