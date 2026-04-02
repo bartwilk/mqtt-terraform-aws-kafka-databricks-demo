@@ -111,36 +111,68 @@ jobs:
       - name: Terraform Plan
         working-directory: infra/aws
         env:
-          TF_VAR_aws_region:  ${{ env.AWS_REGION }}
-          TF_VAR_environment: ${{ env.ENVIRONMENT }}
-          TF_VAR_project:     ${{ env.PROJECT_NAME }}
+          TF_VAR_aws_region:        ${{ env.AWS_REGION }}
+          TF_VAR_environment:       ${{ env.ENVIRONMENT }}
+          TF_VAR_project:           ${{ env.PROJECT_NAME }}
+          TF_VAR_github_repo:       ${{ github.repository }}
+          TF_VAR_arc_github_token:  ${{ secrets.ARC_GITHUB_TOKEN }}
         run: terraform plan -out=tfplan
 
-      - name: Terraform Apply
+      - name: Terraform Apply (EKS first, then ARC)
         if: github.ref == 'refs/heads/main'
         working-directory: infra/aws
         env:
-          TF_VAR_aws_region:  ${{ env.AWS_REGION }}
-          TF_VAR_environment: ${{ env.ENVIRONMENT }}
-          TF_VAR_project:     ${{ env.PROJECT_NAME }}
-        run: terraform apply -auto-approve tfplan
+          TF_VAR_aws_region:        ${{ env.AWS_REGION }}
+          TF_VAR_environment:       ${{ env.ENVIRONMENT }}
+          TF_VAR_project:           ${{ env.PROJECT_NAME }}
+          TF_VAR_github_repo:       ${{ github.repository }}
+          TF_VAR_arc_github_token:  ${{ secrets.ARC_GITHUB_TOKEN }}
+        run: |
+          # Apply EKS (and all other AWS resources) first so the Helm provider
+          # can authenticate before deploying ARC into the cluster.
+          terraform apply -auto-approve \
+            -target=module.eks \
+            -target=module.vpc \
+            -target=aws_msk_cluster.msk \
+            -target=aws_msk_configuration.msk \
+            -target=aws_security_group.msk \
+            -target=aws_vpc_security_group_ingress_rule.msk_tls \
+            -target=aws_vpc_security_group_ingress_rule.msk_sasl_scram \
+            -target=aws_vpc_security_group_ingress_rule.msk_sasl_iam \
+            -target=aws_vpc_security_group_egress_rule.msk_all \
+            -target=module.iot_processor_ecr \
+            -target=module.iot_msk_bridge
+          # Now apply the full plan including ARC Helm releases
+          terraform apply -auto-approve tfplan
 
   # ===========================================================================
   # 2. Kafka topics + ACLs (Mongey provider, MSK SASL/IAM)
   #    Needs MSK to exist from aws_infra job
   # ===========================================================================
   kafka_infra:
-    runs-on: ubuntu-latest
+    # Runs on a self-hosted ARC runner inside the EKS cluster (private VPC)
+    # so the Mongey Kafka provider can reach MSK brokers on port 9098.
+    runs-on: kafka-infra-runner
     needs: aws_infra
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.0
+      - name: Install tools (AWS CLI + Terraform)
+        run: |
+          set -euo pipefail
+          # AWS CLI
+          if ! command -v aws &>/dev/null; then
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+            unzip -q /tmp/awscli.zip -d /tmp
+            /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
+          fi
+          # Terraform
+          if ! command -v terraform &>/dev/null; then
+            curl -fsSL "https://releases.hashicorp.com/terraform/1.9.0/terraform_1.9.0_linux_amd64.zip" -o /tmp/tf.zip
+            unzip -q /tmp/tf.zip -d /usr/local/bin
+          fi
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

@@ -185,6 +185,58 @@ module "iot_processor_ecr" {
 }
 
 # ---------------------------------------------------------------------------
+# Actions Runner Controller (ARC) — self-hosted runners inside the VPC
+# Allows kafka_infra Terraform to reach private MSK brokers directly.
+# ---------------------------------------------------------------------------
+
+resource "helm_release" "arc_controller" {
+  name             = "arc"
+  repository       = "oci://ghcr.io/actions/actions-runner-controller-charts"
+  chart            = "gha-runner-scale-set-controller"
+  version          = "0.9.3"
+  namespace        = "arc-systems"
+  create_namespace = true
+
+  depends_on = [module.eks]
+}
+
+resource "helm_release" "arc_runner_set" {
+  name             = "kafka-infra-runner"
+  repository       = "oci://ghcr.io/actions/actions-runner-controller-charts"
+  chart            = "gha-runner-scale-set"
+  version          = "0.9.3"
+  namespace        = "arc-runners"
+  create_namespace = true
+
+  set {
+    name  = "githubConfigUrl"
+    value = "https://github.com/${var.github_repo}"
+  }
+
+  set_sensitive {
+    name  = "githubConfigSecret.github_token"
+    value = var.arc_github_token
+  }
+
+  set {
+    name  = "runnerScaleSetName"
+    value = "kafka-infra-runner"
+  }
+
+  set {
+    name  = "minRunners"
+    value = "0"
+  }
+
+  set {
+    name  = "maxRunners"
+    value = "3"
+  }
+
+  depends_on = [helm_release.arc_controller]
+}
+
+# ---------------------------------------------------------------------------
 # IoT Core → MSK bridge
 # ---------------------------------------------------------------------------
 

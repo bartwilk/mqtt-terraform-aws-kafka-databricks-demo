@@ -17,3 +17,14 @@ variable "vpc_cidr" {
   type    = string
   default = "10.0.0.0/16"
 }
+
+variable "github_repo" {
+  description = "GitHub repo for the ARC runner scale set (e.g. 'myorg/myrepo')"
+  type        = string
+}
+
+variable "arc_github_token" {
+  description = "GitHub Personal Access Token with repo scope for ARC runner registration"
+  type        = string
+  sensitive   = true
+}

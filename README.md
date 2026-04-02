@@ -176,12 +176,13 @@ mqtt-terraform-aws-kafka-databricks-demo/
 |-----------|---------|--------|
 | Network | AWS VPC | 10.0.0.0/16 (dev), 10.1.0.0/16 (prod), 3 AZs, 1 NAT GW |
 | Compute | AWS EKS 1.32 | Managed node group, t3.large, 2–10 nodes, IRSA enabled |
-| Streaming | Amazon MSK | 3 brokers, m5.large, Kafka 3.6.0, TLS + SCRAM |
+| Streaming | Amazon MSK | 3 brokers, m5.large, Kafka 3.6.0, TLS + SCRAM, private subnets |
 | Ingestion | AWS IoT Core | Topic rule `sensors/#`, Kafka action, VPC destination |
 | Registry | AWS ECR | Scan-on-push, mutable tags |
 | Secrets | AWS Secrets Manager | MSK SASL creds, 7-day recovery window |
 | Catalog | Databricks Unity Catalog | `iot` catalog, bronze/silver/gold schemas |
 | State | S3 + DynamoDB | 3 separate state files: aws / kafka / databricks |
+| CI Kafka runner | ARC on EKS | Self-hosted GitHub Actions runner inside the VPC — runs `infra/kafka` Terraform against private MSK brokers (scales to 0 when idle) |
 
 ---
 
@@ -197,13 +198,15 @@ aws_infra
     └────────────────────────────────app_deploy
 ```
 
-| Job | Description |
-|-----|-------------|
-| `aws_infra` | `terraform apply` in `infra/aws` — provisions VPC, EKS, MSK, IoT Core, ECR |
-| `kafka_infra` | Resolves MSK brokers via AWS CLI, then `terraform apply` in `infra/kafka` |
-| `databricks_infra` | `terraform apply` in `infra/databricks` — cluster, Unity Catalog, notebooks, job |
-| `databricks_sql` | Runs each SQL view via Databricks Statement Execution API 2.0 |
-| `app_deploy` | Docker build → ECR push → `kubectl apply` + rollout wait |
+| Job | Runner | Description |
+|-----|--------|-------------|
+| `aws_infra` | `ubuntu-latest` | `terraform apply` in `infra/aws` — provisions VPC, EKS, MSK, IoT Core, ECR, and installs the ARC self-hosted runner into EKS via Helm |
+| `kafka_infra` | `kafka-infra-runner` (self-hosted, inside VPC) | Resolves MSK bootstrap brokers via AWS CLI, then `terraform apply` in `infra/kafka` — runs inside the EKS cluster so it can reach private MSK brokers directly |
+| `databricks_infra` | `ubuntu-latest` | `terraform apply` in `infra/databricks` — cluster, Unity Catalog, notebooks, job |
+| `databricks_sql` | `ubuntu-latest` | Runs each SQL view via Databricks Statement Execution API 2.0 |
+| `app_deploy` | `ubuntu-latest` | Docker build → ECR push → `kubectl apply` + rollout wait |
+
+> **Why a self-hosted runner for `kafka_infra`?** The Mongey Kafka Terraform provider connects directly to MSK broker ports (`:9098`) using the Kafka protocol — not the AWS API. MSK brokers live in private subnets with no public access, so a standard GitHub-hosted runner cannot reach them. The ARC runner runs as a pod inside the EKS cluster (same VPC), giving it direct network access to MSK.
 
 ---
 
@@ -259,19 +262,21 @@ aws_infra
 |--------|-------------|
 | `AWS_TERRAFORM_ROLE_ARN` | IAM role for Terraform (OIDC-assumed) |
 | `AWS_APP_ROLE_ARN` | IAM role for app deploy (ECR push, EKS rollout) |
+| `ARC_GITHUB_TOKEN` | GitHub PAT with `repo` scope — used by ARC to register the self-hosted runner |
 | `DATABRICKS_HOST` | Databricks workspace URL |
 | `DATABRICKS_TOKEN` | Databricks personal access token |
 | `DATABRICKS_SQL_WAREHOUSE_ID` | Warehouse ID for SQL view execution |
-| `KAFKA_IOT_PRINCIPAL` | e.g. `User:iot_msk_producer` |
-| `KAFKA_EKS_PRINCIPAL` | e.g. `User:eks_iot_processor` |
-| `KAFKA_DATABRICKS_PRINCIPAL` | e.g. `User:arn:aws:iam::123456789012:role/databricks-msk-role` |
+| `KAFKA_IOT_PRINCIPAL` | Kafka ACL principal for IoT Core producer, e.g. `User:iot_msk_producer` — must match the SCRAM username in the MSK Secrets Manager secret |
+| `KAFKA_EKS_PRINCIPAL` | Kafka ACL principal for EKS processor, e.g. `User:eks_iot_processor` — must match the SCRAM username used by the `kafka-connection` K8s Secret |
+| `KAFKA_DATABRICKS_PRINCIPAL` | Kafka ACL principal for Databricks, e.g. `User:arn:aws:iam::123456789012:role/databricks-msk-role` |
 
 ### Pre-Deployment Checklist
 
-- [ ] Create S3 bucket and DynamoDB table for Terraform remote state
-- [ ] Replace `mycompany-terraform-state` in `infra/aws/backend.tf`, `infra/kafka/backend.tf`, and `infra/databricks/backend.tf` with your S3 bucket name
-- [ ] Create a GitHub OIDC IAM role in AWS and set as `AWS_TERRAFORM_ROLE_ARN`
+- [ ] Complete the AWS initial setup (bootstrap workflow) above — sets up S3, DynamoDB, OIDC, IAM roles
+- [ ] Add `STATE_BUCKET_NAME` GitHub variable — injected at `terraform init`, no edits to `backend.tf` needed
+- [ ] Create a GitHub PAT with `repo` scope and add as `ARC_GITHUB_TOKEN` — used by ARC to register the self-hosted runner into your repo
 - [ ] Create the MSK SASL secret in Secrets Manager before applying `infra/aws` (or set `create_secret = true` in the `iot_msk_bridge` module)
+- [ ] Set `KAFKA_IOT_PRINCIPAL`, `KAFKA_EKS_PRINCIPAL`, and `KAFKA_DATABRICKS_PRINCIPAL` GitHub Secrets — Terraform reads these to configure Kafka ACLs. The `User:` prefix is required. The username in `KAFKA_IOT_PRINCIPAL` and `KAFKA_EKS_PRINCIPAL` must match the SCRAM credentials in Secrets Manager / the `kafka-connection` K8s Secret respectively
 - [ ] Run `terraform init` in `infra/aws`, `infra/kafka`, and `infra/databricks`; commit the generated `.terraform.lock.hcl` files for reproducible provider versions
 - [ ] Create a `kafka-connection` Kubernetes Secret in the `iot` namespace after the EKS cluster is up (keys: `bootstrap_servers`, `username`, `password`)
 
