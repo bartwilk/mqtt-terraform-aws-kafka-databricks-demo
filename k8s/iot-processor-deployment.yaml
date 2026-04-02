@@ -14,9 +14,24 @@ spec:
         app: iot-processor
     spec:
       serviceAccountName: iot-processor-sa
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: iot-processor
           image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/mqtt-iot-pipeline/iot-processor:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: health
+              containerPort: 8080
+              protocol: TCP
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
               valueFrom:
@@ -50,19 +65,22 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
           livenessProbe:
-            exec:
-              command:
-                - python3
-                - -c
-                - "import os; open('/tmp/healthy', 'w').close() if os.path.exists('/tmp/healthy') else None"
-            initialDelaySeconds: 30
-            periodSeconds: 30
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 15
+            failureThreshold: 3
           readinessProbe:
-            exec:
-              command:
-                - python3
-                - -c
-                - "import os; exit(0)"
-            initialDelaySeconds: 10
+            httpGet:
+              path: /healthz
+              port: health
             periodSeconds: 10
+            failureThreshold: 3

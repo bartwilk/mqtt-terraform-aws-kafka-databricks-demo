@@ -110,9 +110,112 @@ resource "aws_iam_role" "terraform" {
   }
 }
 
-resource "aws_iam_role_policy_attachment" "terraform_admin" {
+data "aws_iam_policy_document" "terraform_permissions" {
+  # VPC, subnets, NAT gateways, security groups, route tables
+  statement {
+    effect    = "Allow"
+    actions   = ["ec2:*"]
+    resources = ["*"]
+  }
+
+  # EKS cluster, node groups, IRSA
+  statement {
+    effect    = "Allow"
+    actions   = ["eks:*"]
+    resources = ["*"]
+  }
+
+  # MSK cluster management
+  statement {
+    effect    = "Allow"
+    actions   = ["kafka:*", "kafka-cluster:*"]
+    resources = ["*"]
+  }
+
+  # ECR repositories
+  statement {
+    effect    = "Allow"
+    actions   = ["ecr:*"]
+    resources = ["*"]
+  }
+
+  # IoT Core rules and destinations
+  statement {
+    effect    = "Allow"
+    actions   = ["iot:*"]
+    resources = ["*"]
+  }
+
+  # Secrets Manager for MSK SASL credentials
+  statement {
+    effect    = "Allow"
+    actions   = ["secretsmanager:*"]
+    resources = ["*"]
+  }
+
+  # IAM roles and policies for service roles
+  statement {
+    effect    = "Allow"
+    actions   = ["iam:*"]
+    resources = ["*"]
+  }
+
+  # KMS for MSK encryption at rest
+  statement {
+    effect    = "Allow"
+    actions   = ["kms:*"]
+    resources = ["*"]
+  }
+
+  # CloudWatch Logs for EKS control plane
+  statement {
+    effect    = "Allow"
+    actions   = ["logs:*"]
+    resources = ["*"]
+  }
+
+  # Terraform state management
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:*"]
+    resources = ["*"]
+  }
+  statement {
+    effect    = "Allow"
+    actions   = ["dynamodb:*"]
+    resources = ["*"]
+  }
+
+  # STS for caller identity
+  statement {
+    effect    = "Allow"
+    actions   = ["sts:GetCallerIdentity"]
+    resources = ["*"]
+  }
+
+  # Elastic Load Balancing (EKS ingress)
+  statement {
+    effect    = "Allow"
+    actions   = ["elasticloadbalancing:*"]
+    resources = ["*"]
+  }
+
+  # Auto Scaling (EKS node groups)
+  statement {
+    effect    = "Allow"
+    actions   = ["autoscaling:*"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "terraform" {
+  name   = "${var.terraform_role_name}-policy"
+  policy = data.aws_iam_policy_document.terraform_permissions.json
+}
+
+resource "aws_iam_role_policy_attachment" "terraform" {
   role       = aws_iam_role.terraform.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+  policy_arn = aws_iam_policy.terraform.arn
 }
 
 # ---------------------------------------------------------------------------

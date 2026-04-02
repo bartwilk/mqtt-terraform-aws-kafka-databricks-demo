@@ -10,6 +10,10 @@ on:
         required: true
         default: "dev"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   id-token: write
   contents: read
@@ -98,7 +102,7 @@ jobs:
             egress=$(echo "$rule" | jq -r '.Egress')
 
             if [ "$egress" = "true" ]; then
-              import_if_missing "aws_vpc_security_group_egress_rule.msk_all" "$rule_id"
+              import_if_missing "aws_vpc_security_group_egress_rule.msk_vpc" "$rule_id"
             elif [ "$port" = "9094" ]; then
               import_if_missing "aws_vpc_security_group_ingress_rule.msk_tls" "$rule_id"
             elif [ "$port" = "9096" ]; then
@@ -128,22 +132,25 @@ jobs:
           TF_VAR_github_repo:       ${{ github.repository }}
           TF_VAR_arc_github_token:  ${{ secrets.ARC_GITHUB_TOKEN }}
         run: |
-          # Apply EKS (and all other AWS resources) first so the Helm provider
-          # can authenticate before deploying ARC into the cluster.
+          # Step 1: Apply EKS (and all other AWS resources) first so the Helm
+          # provider can authenticate before deploying ARC into the cluster.
           terraform apply -auto-approve \
             -target=module.eks \
             -target=module.vpc \
+            -target=aws_kms_key.msk \
             -target=aws_msk_cluster.msk \
             -target=aws_msk_configuration.msk \
             -target=aws_security_group.msk \
             -target=aws_vpc_security_group_ingress_rule.msk_tls \
             -target=aws_vpc_security_group_ingress_rule.msk_sasl_scram \
             -target=aws_vpc_security_group_ingress_rule.msk_sasl_iam \
-            -target=aws_vpc_security_group_egress_rule.msk_all \
+            -target=aws_vpc_security_group_egress_rule.msk_vpc \
+            -target=aws_vpc_security_group_egress_rule.msk_dns \
             -target=module.iot_processor_ecr \
             -target=module.iot_msk_bridge
-          # Now apply the full plan including ARC Helm releases
-          terraform apply -auto-approve tfplan
+          # Step 2: Full apply (including ARC Helm releases). Do NOT use the
+          # saved plan file — state changed in step 1, making it stale.
+          terraform apply -auto-approve
 
   # ===========================================================================
   # 2. Kafka topics + ACLs (Mongey provider, MSK SASL/IAM)

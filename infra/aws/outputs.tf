@@ -1,6 +1,6 @@
 output "msk_bootstrap_brokers_tls" {
-  description = "TLS bootstrap brokers for MSK (used by EKS app and IoT bridge)"
-  value       = aws_msk_cluster.msk.bootstrap_brokers_tls
+  description = "SASL/SCRAM bootstrap brokers for MSK (port 9096, used by IoT bridge and EKS)"
+  value       = aws_msk_cluster.msk.bootstrap_brokers_sasl_scram
 }
 
 output "msk_bootstrap_brokers_sasl_iam" {

@@ -11,7 +11,7 @@ Bootstrap is a **one-time GitHub Actions workflow** (`bootstrap.yml`) that creat
 ### Step 1 — Create a bootstrap IAM user in AWS
 
 In the AWS Console → **IAM → Users → Create user** (`github-bootstrap`):
-- Attach policy: `AdministratorAccess` (needed to create IAM, S3, DynamoDB, OIDC provider)
+- Attach policy: `AdministratorAccess` (needed for initial bootstrap only — the OIDC role it creates uses a scoped custom policy)
 - Create an **access key** (type: CLI) and save the key ID + secret
 
 This user is only needed to run bootstrap once. You can delete it afterwards.
@@ -41,7 +41,7 @@ This provisions:
 - S3 bucket (versioned, encrypted, public access blocked) for Terraform remote state
 - DynamoDB table (`terraform-state-locks`) for state locking
 - GitHub OIDC identity provider in IAM
-- `github-actions-terraform-role` — assumed by `aws_infra` and `kafka_infra` jobs
+- `github-actions-terraform-role` — assumed by `aws_infra` and `kafka_infra` jobs (scoped to EC2, EKS, MSK, ECR, IoT, Secrets Manager, IAM, KMS, CloudWatch Logs, S3, DynamoDB)
 - `github-actions-app-deploy-role` — assumed by the `app_deploy` job (ECR + EKS scoped)
 
 ### Step 4 — Add the role ARN secrets
@@ -152,7 +152,7 @@ mqtt-terraform-aws-kafka-databricks-demo/
 │       └── iot_dashboard_views.sql         # 4 AI/BI dashboard views
 ├── services/
 │   └── iot-processor/
-│       ├── app.py                      # Confluent Kafka consumer/producer
+│       ├── app.py                      # Confluent Kafka consumer/producer + /healthz endpoint
 │       ├── Dockerfile                  # python:3.11-slim, non-root UID 1000
 │       ├── requirements.txt
 │       ├── requirements-dev.txt        # runtime deps + pytest==8.3.5
@@ -164,8 +164,7 @@ mqtt-terraform-aws-kafka-databricks-demo/
 │   ├── namespace.yaml
 │   ├── iot-processor-configmap.yaml
 │   ├── iot-processor-serviceaccount.yaml   # IRSA annotation
-│   └── iot-processor-deployment.yaml       # 3 replicas, secrets + configmap refs
-└── createproject.sh                    # Original scaffolding script (reference only)
+│   └── iot-processor-deployment.yaml       # 3 replicas, HTTP probes, securityContext
 ```
 
 ---
@@ -175,10 +174,10 @@ mqtt-terraform-aws-kafka-databricks-demo/
 | Component | Service | Config |
 |-----------|---------|--------|
 | Network | AWS VPC | 10.0.0.0/16 (dev), 10.1.0.0/16 (prod), 3 AZs, 1 NAT GW |
-| Compute | AWS EKS 1.32 | Managed node group, t3.large, 2–10 nodes, IRSA enabled |
-| Streaming | Amazon MSK | 3 brokers, m5.large, Kafka 3.6.0, TLS + SCRAM, private subnets |
+| Compute | AWS EKS 1.32 | Managed node group, t3.large, 2–10 nodes, IRSA enabled, private API endpoint, control plane logging |
+| Streaming | Amazon MSK | 3 brokers, m5.large, Kafka 3.6.0, TLS + SCRAM, private subnets, KMS encryption at rest |
 | Ingestion | AWS IoT Core | Topic rule `sensors/#`, Kafka action, VPC destination |
-| Registry | AWS ECR | Scan-on-push, mutable tags |
+| Registry | AWS ECR | Scan-on-push, immutable tags |
 | Secrets | AWS Secrets Manager | MSK SASL creds, 7-day recovery window |
 | Catalog | Databricks Unity Catalog | `iot` catalog, bronze/silver/gold schemas |
 | State | S3 + DynamoDB | 3 separate state files: aws / kafka / databricks |
@@ -188,7 +187,7 @@ mqtt-terraform-aws-kafka-databricks-demo/
 
 ## CI/CD Pipeline
 
-Five GitHub Actions jobs with explicit dependency chain:
+Five GitHub Actions jobs with explicit dependency chain. A `concurrency` group prevents parallel runs against the same branch from corrupting Terraform state:
 
 ```
 aws_infra
@@ -200,7 +199,7 @@ aws_infra
 
 | Job | Runner | Description |
 |-----|--------|-------------|
-| `aws_infra` | `ubuntu-latest` | `terraform apply` in `infra/aws` — provisions VPC, EKS, MSK, IoT Core, ECR, and installs the ARC self-hosted runner into EKS via Helm |
+| `aws_infra` | `ubuntu-latest` | Two-step `terraform apply` in `infra/aws` — first targets all AWS resources (VPC, EKS, MSK, IoT Core, ECR), then runs a full apply (including ARC Helm releases) so the Helm provider can authenticate against the newly-created cluster |
 | `kafka_infra` | `kafka-infra-runner` (self-hosted, inside VPC) | Resolves MSK bootstrap brokers via AWS CLI, then `terraform apply` in `infra/kafka` — runs inside the EKS cluster so it can reach private MSK brokers directly |
 | `databricks_infra` | `ubuntu-latest` | `terraform apply` in `infra/databricks` — cluster, Unity Catalog, notebooks, job |
 | `databricks_sql` | `ubuntu-latest` | Runs each SQL view via Databricks Statement Execution API 2.0 |
@@ -234,15 +233,35 @@ aws_infra
 
 ## Security
 
+**Network & encryption:**
 - TLS in transit everywhere (IoT Core → MSK, EKS → MSK, Databricks → MSK)
+- KMS encryption at rest for MSK data volumes (automatic key rotation)
+- VPC isolation — MSK and EKS in private subnets only
+- EKS API endpoint is private-only (no public access)
+- Security group egress restricted to VPC CIDR + DNS (MSK) and Kafka port + HTTPS (IoT ENIs)
+
+**Authentication & authorization:**
 - SASL/SCRAM-SHA-512 Kafka authentication for IoT and EKS clients
 - MSK IAM auth for Databricks (no static credentials)
 - IRSA (IAM Roles for Service Accounts) — no static credentials in EKS pods
 - GitHub OIDC — no long-lived AWS access keys in CI secrets
-- Non-root container (UID 1000)
-- VPC isolation — MSK and EKS in private subnets only
-- Secrets Manager for SASL credential storage
+- Scoped IAM policies — Terraform role uses a custom policy (not AdministratorAccess)
 - Kafka ACLs enforce least-privilege per principal
+- Secrets Manager for SASL credential storage
+
+**Container security:**
+- Non-root container (UID 1000) with `runAsNonRoot` enforced in K8s
+- `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, all Linux capabilities dropped
+- ECR immutable image tags — prevents supply chain attacks via tag overwriting
+- Graceful shutdown with SIGTERM handling, producer flush, and consumer close
+
+**Observability:**
+- EKS control plane logging enabled (api, audit, authenticator, controllerManager, scheduler)
+- ECR scan-on-push for image vulnerability detection
+
+**CI/CD:**
+- Concurrency control prevents parallel Terraform applies against the same state
+- Terraform variable validation (environment enum, CIDR format, repo format)
 
 ---
 

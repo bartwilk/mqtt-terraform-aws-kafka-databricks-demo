@@ -14,4 +14,6 @@ COPY app.py .
 USER 1000
 ENV PYTHONUNBUFFERED=1
 
+EXPOSE 8080
+
 CMD ["python", "app.py"]

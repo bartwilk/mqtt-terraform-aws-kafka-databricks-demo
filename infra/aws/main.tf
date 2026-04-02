@@ -69,11 +69,31 @@ resource "aws_vpc_security_group_ingress_rule" "msk_sasl_iam" {
   description       = "Kafka SASL/IAM from VPC"
 }
 
-resource "aws_vpc_security_group_egress_rule" "msk_all" {
+resource "aws_vpc_security_group_egress_rule" "msk_vpc" {
+  security_group_id = aws_security_group.msk.id
+  cidr_ipv4         = var.vpc_cidr
+  ip_protocol       = "-1"
+  description       = "Allow all outbound within VPC"
+}
+
+resource "aws_vpc_security_group_egress_rule" "msk_dns" {
   security_group_id = aws_security_group.msk.id
   cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
-  description       = "Allow all outbound"
+  from_port         = 53
+  to_port           = 53
+  ip_protocol       = "udp"
+  description       = "Allow DNS resolution"
+}
+
+resource "aws_kms_key" "msk" {
+  description         = "KMS key for MSK encryption at rest"
+  enable_key_rotation = true
+
+  tags = {
+    Project     = var.project
+    Environment = var.environment
+    Terraform   = "true"
+  }
 }
 
 resource "aws_msk_cluster" "msk" {
@@ -98,6 +118,7 @@ resource "aws_msk_cluster" "msk" {
       client_broker = "TLS"
       in_cluster    = true
     }
+    encryption_at_rest_kms_key_arn = aws_kms_key.msk.arn
   }
 
   client_authentication {
@@ -154,8 +175,11 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  cluster_endpoint_public_access           = true
+  cluster_endpoint_public_access           = false
+  cluster_endpoint_private_access          = true
   enable_cluster_creator_admin_permissions = true
+
+  cluster_enabled_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
 
   eks_managed_node_groups = {
     default = {
