@@ -33,17 +33,25 @@ jobs:
         working-directory: infra/bootstrap
         run: terraform init
 
-      - name: Terraform Plan
-        working-directory: infra/bootstrap
-        env:
-          TF_VAR_state_bucket_name: ${{ vars.STATE_BUCKET_NAME }}
-        run: terraform plan -out=tfplan
-
       - name: Terraform Apply
         working-directory: infra/bootstrap
         env:
           TF_VAR_state_bucket_name: ${{ vars.STATE_BUCKET_NAME }}
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve
+
+      - name: Remove stale AdministratorAccess if attached
+        run: |
+          set -euo pipefail
+          ROLE_NAME="github-actions-terraform-role"
+          ADMIN_ARN="arn:aws:iam::aws:policy/AdministratorAccess"
+          if aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
+              --query "AttachedPolicies[?PolicyArn=='${ADMIN_ARN}'].PolicyArn" \
+              --output text | grep -q "$ADMIN_ARN"; then
+            echo "Detaching stale AdministratorAccess from $ROLE_NAME"
+            aws iam detach-role-policy --role-name "$ROLE_NAME" --policy-arn "$ADMIN_ARN"
+          else
+            echo "No stale AdministratorAccess found on $ROLE_NAME"
+          fi
 
       - name: Print outputs
         working-directory: infra/bootstrap

@@ -20,3 +20,8 @@ variable "notebook_base_dir" {
   type        = string
   default     = "/Shared/iot-pipeline"
 }
+
+variable "catalog_storage_root" {
+  description = "S3 location for Unity Catalog managed storage (e.g. s3://my-bucket/unity-catalog/iot)"
+  type        = string
+}

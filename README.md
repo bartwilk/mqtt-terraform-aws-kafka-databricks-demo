@@ -270,7 +270,7 @@ aws_infra
 ### Prerequisites
 
 - AWS account with permissions to create VPC, EKS, MSK, IoT Core, ECR, IAM, Secrets Manager
-- Databricks workspace (AWS-hosted) with Unity Catalog enabled
+- Databricks workspace (AWS-hosted) with Unity Catalog enabled and a worker environment configured (classic compute VPC or serverless)
 - Terraform >= 1.6.0 installed locally
 - `kubectl` and `aws` CLI configured
 - GitHub repository with Actions enabled
@@ -285,6 +285,7 @@ aws_infra
 | `DATABRICKS_HOST` | Databricks workspace URL |
 | `DATABRICKS_TOKEN` | Databricks personal access token |
 | `DATABRICKS_SQL_WAREHOUSE_ID` | Warehouse ID for SQL view execution |
+| `DATABRICKS_CATALOG_STORAGE_ROOT` | S3 location for Unity Catalog managed storage, e.g. `s3://my-bucket/unity-catalog/iot` |
 | `KAFKA_IOT_PRINCIPAL` | Kafka ACL principal for IoT Core producer, e.g. `User:iot_msk_producer` — must match the SCRAM username in the MSK Secrets Manager secret |
 | `KAFKA_EKS_PRINCIPAL` | Kafka ACL principal for EKS processor, e.g. `User:eks_iot_processor` — must match the SCRAM username used by the `kafka-connection` K8s Secret |
 | `KAFKA_DATABRICKS_PRINCIPAL` | Kafka ACL principal for Databricks, e.g. `User:arn:aws:iam::123456789012:role/databricks-msk-role` |
