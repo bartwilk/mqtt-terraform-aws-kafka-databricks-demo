@@ -61,9 +61,11 @@ jobs:
       - name: Import existing MSK security group rules (idempotent)
         working-directory: infra/aws
         env:
-          TF_VAR_aws_region:  ${{ env.AWS_REGION }}
-          TF_VAR_environment: ${{ env.ENVIRONMENT }}
-          TF_VAR_project:     ${{ env.PROJECT_NAME }}
+          TF_VAR_aws_region:        ${{ env.AWS_REGION }}
+          TF_VAR_environment:       ${{ env.ENVIRONMENT }}
+          TF_VAR_project:           ${{ env.PROJECT_NAME }}
+          TF_VAR_github_repo:       ${{ github.repository }}
+          TF_VAR_arc_github_token:  ${{ secrets.ARC_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           SG_NAME="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-msk"
@@ -89,10 +91,7 @@ jobs:
               echo "$addr already in state, skipping"
             else
               echo "Importing $addr ($rule_id)"
-              terraform import -var="aws_region=${{ env.AWS_REGION }}" \
-                -var="environment=${{ env.ENVIRONMENT }}" \
-                -var="project=${{ env.PROJECT_NAME }}" \
-                "$addr" "$rule_id" || true
+              terraform import "$addr" "$rule_id" || true
             fi
           }
 
