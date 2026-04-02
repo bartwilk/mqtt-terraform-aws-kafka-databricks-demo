@@ -3,6 +3,8 @@ name: bootstrap
 # Run manually only — creates the AWS resources that the main pipeline depends on.
 # Requires static AWS credentials (bootstrap IAM user) stored as GitHub secrets.
 # After this runs once successfully, the main pipeline uses OIDC for all auth.
+#
+# Safe to re-run: imports existing resources into local state before applying.
 on:
   workflow_dispatch:
 
@@ -12,6 +14,9 @@ permissions:
 jobs:
   bootstrap:
     runs-on: ubuntu-latest
+
+    env:
+      TF_VAR_state_bucket_name: ${{ vars.STATE_BUCKET_NAME }}
 
     steps:
       - name: Checkout
@@ -33,10 +38,68 @@ jobs:
         working-directory: infra/bootstrap
         run: terraform init
 
+      - name: Import existing resources (idempotent)
+        working-directory: infra/bootstrap
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="${TF_VAR_state_bucket_name}"
+          REGION="us-east-1"
+
+          import_if_missing() {
+            local addr=$1 id=$2
+            if terraform state show "$addr" > /dev/null 2>&1; then
+              echo "$addr already in state"
+            else
+              echo "Importing $addr"
+              terraform import "$addr" "$id" || true
+            fi
+          }
+
+          # S3 bucket
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            import_if_missing "aws_s3_bucket.tf_state" "$BUCKET"
+            import_if_missing "aws_s3_bucket_versioning.tf_state" "$BUCKET"
+            import_if_missing "aws_s3_bucket_server_side_encryption_configuration.tf_state" "$BUCKET"
+            import_if_missing "aws_s3_bucket_public_access_block.tf_state" "$BUCKET"
+          fi
+
+          # DynamoDB table
+          if aws dynamodb describe-table --table-name "terraform-state-locks" --region "$REGION" > /dev/null 2>&1; then
+            import_if_missing "aws_dynamodb_table.tf_state_locks" "terraform-state-locks"
+          fi
+
+          # OIDC provider
+          OIDC_ARN=$(aws iam list-open-id-connect-providers \
+            --query "OpenIDConnectProviderList[?ends_with(Arn, '/token.actions.githubusercontent.com')].Arn" \
+            --output text) || true
+          if [ -n "$OIDC_ARN" ] && [ "$OIDC_ARN" != "None" ]; then
+            import_if_missing "aws_iam_openid_connect_provider.github" "$OIDC_ARN"
+          fi
+
+          # IAM roles
+          if aws iam get-role --role-name "github-actions-terraform-role" > /dev/null 2>&1; then
+            import_if_missing "aws_iam_role.terraform" "github-actions-terraform-role"
+          fi
+          if aws iam get-role --role-name "github-actions-app-deploy-role" > /dev/null 2>&1; then
+            import_if_missing "aws_iam_role.app_deploy" "github-actions-app-deploy-role"
+          fi
+
+          # IAM policies
+          TF_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/github-actions-terraform-role-policy"
+          if aws iam get-policy --policy-arn "$TF_POLICY_ARN" > /dev/null 2>&1; then
+            import_if_missing "aws_iam_policy.terraform" "$TF_POLICY_ARN"
+            import_if_missing "aws_iam_role_policy_attachment.terraform" "github-actions-terraform-role/$TF_POLICY_ARN"
+          fi
+
+          APP_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/github-actions-app-deploy-role-policy"
+          if aws iam get-policy --policy-arn "$APP_POLICY_ARN" > /dev/null 2>&1; then
+            import_if_missing "aws_iam_policy.app_deploy" "$APP_POLICY_ARN"
+            import_if_missing "aws_iam_role_policy_attachment.app_deploy" "github-actions-app-deploy-role/$APP_POLICY_ARN"
+          fi
+
       - name: Terraform Apply
         working-directory: infra/bootstrap
-        env:
-          TF_VAR_state_bucket_name: ${{ vars.STATE_BUCKET_NAME }}
         run: terraform apply -auto-approve
 
       - name: Remove stale AdministratorAccess if attached
