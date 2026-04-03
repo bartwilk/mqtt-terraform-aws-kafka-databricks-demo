@@ -29,5 +29,6 @@ checkpoint = "/mnt/checkpoints/iot/silver/sensor_clean"
     .format("delta")
     .outputMode("append")
     .option("checkpointLocation", checkpoint)
+    .trigger(availableNow=True)
     .toTable(silver_table)
 )

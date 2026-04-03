@@ -57,5 +57,6 @@ checkpoint = "/mnt/checkpoints/iot/bronze/sensor_events"
     .format("delta")
     .outputMode("append")
     .option("checkpointLocation", checkpoint)
+    .trigger(availableNow=True)
     .toTable(bronze_table)
 )

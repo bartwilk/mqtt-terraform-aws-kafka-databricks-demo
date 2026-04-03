@@ -40,5 +40,6 @@ checkpoint = "/mnt/checkpoints/iot/gold/device_metrics"
     .format("delta")
     .outputMode("append")
     .option("checkpointLocation", checkpoint)
+    .trigger(availableNow=True)
     .toTable(gold_table)
 )
