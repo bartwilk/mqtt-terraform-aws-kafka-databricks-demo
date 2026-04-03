@@ -42,7 +42,9 @@ jobs:
             /tmp/aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli"
           fi
 
-          pip install --quiet confluent-kafka
+          # Ensure pip is available, then install Kafka client
+          python3 -m ensurepip --upgrade 2>/dev/null || true
+          python3 -m pip install --quiet confluent-kafka
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
