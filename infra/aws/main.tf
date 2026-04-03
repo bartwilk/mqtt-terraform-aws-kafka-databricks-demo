@@ -369,7 +369,7 @@ resource "aws_iam_role" "databricks_unity_catalog" {
       {
         Effect = "Allow"
         Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-${var.environment}-databricks-uc"
         }
         Action = "sts:AssumeRole"
       }
