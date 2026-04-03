@@ -42,7 +42,8 @@ jobs:
             /tmp/aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli"
           fi
 
-          # Install Kafka client in a venv
+          # Install venv + pip, then install Kafka client
+          sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv python3-pip > /dev/null
           python3 -m venv /tmp/venv
           /tmp/venv/bin/pip install --quiet confluent-kafka
           echo "/tmp/venv/bin" >> "$GITHUB_PATH"
