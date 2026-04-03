@@ -365,6 +365,13 @@ resource "aws_iam_role" "databricks_unity_catalog" {
             "sts:ExternalId" = var.databricks_account_id
           }
         }
+      },
+      {
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action = "sts:AssumeRole"
       }
     ]
   })
@@ -390,7 +397,9 @@ resource "aws_iam_role_policy" "databricks_unity_catalog" {
           "s3:PutObject",
           "s3:DeleteObject",
           "s3:ListBucket",
-          "s3:GetBucketLocation"
+          "s3:GetBucketLocation",
+          "s3:GetBucketNotification",
+          "s3:PutBucketNotification"
         ]
         Resource = [
           aws_s3_bucket.unity_catalog.arn,
