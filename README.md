@@ -117,7 +117,8 @@ Databricks Structured Streaming
 ```
 mqtt-terraform-aws-kafka-databricks-demo/
 ├── .github/workflows/
-│   └── main-pipeline.yml               # Full 5-job CI/CD pipeline
+│   ├── main-pipeline.yml               # Full 5-job CI/CD pipeline
+│   └── sample-data.yml                 # Manual workflow: produce sample IoT events to MSK
 ├── infra/
 │   ├── aws/
 │   │   ├── backend.tf                  # S3 state backend + DynamoDB locking
@@ -161,6 +162,8 @@ mqtt-terraform-aws-kafka-databricks-demo/
 │           ├── conftest.py             # env var patches + confluent_kafka mock
 │           ├── test_normalize_event.py # 13 cases: schema, risk formula, validation
 │           └── test_main_loop.py       # 12 cases: poll pipeline, errors, resilience
+├── scripts/
+│   └── produce_sample_data.py          # Generate sample IoT sensor events to iot_raw topic
 ├── k8s/
 │   ├── namespace.yaml
 │   ├── iot-processor-configmap.yaml
@@ -205,9 +208,20 @@ aws_infra
 | `kafka_infra` | `kafka-infra-runner` (self-hosted, inside VPC) | Resolves MSK bootstrap brokers via AWS CLI, then `terraform apply` in `infra/kafka` — runs inside the EKS cluster so it can reach private MSK brokers directly |
 | `databricks_infra` | `ubuntu-latest` | `terraform apply` in `infra/databricks` — storage credential, Unity Catalog, cluster (SINGLE_USER, i3.xlarge), notebooks, job |
 | `databricks_sql` | `ubuntu-latest` | Runs each SQL view via Databricks Statement Execution API 2.0 |
-| `app_deploy` | `ubuntu-latest` | Docker build → ECR push → `kubectl apply` + rollout wait |
+| `app_deploy` | `ubuntu-latest` | Docker build → ECR push (skips if immutable tag exists) → `kubectl apply` + rollout wait |
 
 > **Why a self-hosted runner for `kafka_infra`?** The Mongey Kafka Terraform provider connects directly to MSK broker ports (`:9098`) using the Kafka protocol — not the AWS API. MSK brokers live in private subnets with no public access, so a standard GitHub-hosted runner cannot reach them. The ARC runner runs as a pod inside the EKS cluster (same VPC), giving it direct network access to MSK.
+
+### Sample Data Workflow (`produce-sample-data`)
+
+A separate **manually triggered** workflow (`sample-data.yml`) that produces synthetic IoT sensor events to the `iot_raw` Kafka topic for end-to-end testing.
+
+- **Runner:** `kafka-infra-runner` (self-hosted, inside VPC — required to reach MSK)
+- **Credentials:** Resolved automatically from Secrets Manager (same SCRAM creds as the iot-processor)
+- **Inputs:** event count (default: 100), target topic (default: `iot_raw`)
+- **Data profile:** 70% normal, 20% elevated risk, 10% high risk across 20 simulated devices
+
+Trigger via: **Actions → produce-sample-data → Run workflow**
 
 ---
 
