@@ -12,18 +12,8 @@ resource "databricks_storage_credential" "unity_catalog" {
 }
 
 # --------------------------
-# External location — dedicated subpath for catalog managed storage
-# --------------------------
-
-resource "databricks_external_location" "iot_catalog" {
-  name            = "iot-catalog-storage"
-  url             = "s3://${var.unity_catalog_s3_bucket}/iot-catalog"
-  credential_name = databricks_storage_credential.unity_catalog.name
-  comment         = "Managed storage for IoT catalog"
-}
-
-# --------------------------
 # Catalog + schemas (medallion architecture)
+# Uses the existing "workspace" external location for managed storage
 # --------------------------
 
 resource "databricks_catalog" "iot" {
@@ -31,8 +21,6 @@ resource "databricks_catalog" "iot" {
   comment = "IoT streaming data catalog"
 
   storage_root = "s3://${var.unity_catalog_s3_bucket}/iot-catalog"
-
-  depends_on = [databricks_external_location.iot_catalog]
 }
 
 resource "databricks_schema" "bronze" {
