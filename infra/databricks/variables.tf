@@ -30,3 +30,9 @@ variable "unity_catalog_s3_bucket" {
   description = "S3 bucket name for Unity Catalog managed storage"
   type        = string
 }
+
+variable "msk_bootstrap_brokers_sasl_iam" {
+  description = "SASL/IAM bootstrap brokers for MSK (passed to Databricks secret scope)"
+  type        = string
+  sensitive   = true
+}

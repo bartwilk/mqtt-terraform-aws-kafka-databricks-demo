@@ -25,3 +25,17 @@ resource "databricks_cluster" "iot_streaming" {
     }
   }
 }
+
+# --------------------------
+# Secret scope — MSK bootstrap brokers for notebooks
+# --------------------------
+
+resource "databricks_secret_scope" "msk" {
+  name = "msk"
+}
+
+resource "databricks_secret" "bootstrap_servers" {
+  scope        = databricks_secret_scope.msk.name
+  key          = "bootstrap_servers"
+  string_value = var.msk_bootstrap_brokers_sasl_iam
+}
