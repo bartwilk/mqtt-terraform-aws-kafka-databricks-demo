@@ -9,7 +9,7 @@ data "databricks_spark_version" "lts" {
 resource "databricks_cluster" "iot_streaming" {
   cluster_name            = "iot-streaming-cluster"
   spark_version           = data.databricks_spark_version.lts.id
-  node_type_id            = "m5.large"
+  node_type_id            = "i3.xlarge"
   num_workers             = 1
   autotermination_minutes = 60
   data_security_mode      = "SINGLE_USER"
