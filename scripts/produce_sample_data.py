@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-Produce sample IoT events to the iot_enriched Kafka topic.
+Produce sample IoT events to the iot_raw Kafka topic.
 
 Usage:
     export KAFKA_BOOTSTRAP_SERVERS="broker1:9098,broker2:9098"
     export KAFKA_SASL_USERNAME="..."
     export KAFKA_SASL_PASSWORD="..."
-    python scripts/produce_sample_data.py [--count 100] [--topic iot_enriched]
+    python scripts/produce_sample_data.py [--count 100] [--topic iot_raw]
 
 Generates realistic sensor readings with varying risk profiles:
   - Normal operation (70%): temp 20-75, vibration 0-3
   - Elevated risk  (20%): temp 80-110, vibration 3-7
   - High risk      (10%): temp 110-150, vibration 7-15
+
+Messages use the raw IoT schema (device_id, ts, temperature, vibration,
+pressure). The EKS iot-processor enriches them with risk_score and forwards
+to iot_enriched.
 """
 
 import argparse
@@ -24,18 +28,7 @@ from datetime import datetime, timezone
 
 from confluent_kafka import Producer
 
-TEMP_THRESHOLD = 80.0
-TEMP_SCALE = 40.0
-VIB_SCALE = 10.0
-
 DEVICE_IDS = [f"sensor-{i:03d}" for i in range(1, 21)]
-
-
-def compute_risk_score(temperature: float, vibration: float) -> float:
-    return min(
-        1.0,
-        (max(0, temperature - TEMP_THRESHOLD) / TEMP_SCALE) + (vibration / VIB_SCALE),
-    )
 
 
 def generate_event() -> dict:
@@ -55,12 +48,10 @@ def generate_event() -> dict:
 
     return {
         "device_id": device_id,
-        "event_time": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
         "temperature": round(temp, 2),
         "vibration": round(vib, 2),
         "pressure": round(pressure, 2),
-        "risk_score": round(compute_risk_score(temp, vib), 4),
-        "ingest_source": "sample-data-producer",
     }
 
 
@@ -74,7 +65,7 @@ def delivery_report(err, msg):
 def main():
     parser = argparse.ArgumentParser(description="Produce sample IoT events to Kafka")
     parser.add_argument("--count", type=int, default=100, help="Number of events (default: 100)")
-    parser.add_argument("--topic", default="iot_enriched", help="Kafka topic (default: iot_enriched)")
+    parser.add_argument("--topic", default="iot_raw", help="Kafka topic (default: iot_raw)")
     parser.add_argument("--delay", type=float, default=0.1, help="Seconds between messages (default: 0.1)")
     args = parser.parse_args()
 

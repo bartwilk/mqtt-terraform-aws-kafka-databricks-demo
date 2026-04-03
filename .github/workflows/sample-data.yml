@@ -10,7 +10,7 @@ on:
       topic:
         description: "Kafka topic"
         required: true
-        default: "iot_enriched"
+        default: "iot_raw"
 
 permissions:
   id-token: write
