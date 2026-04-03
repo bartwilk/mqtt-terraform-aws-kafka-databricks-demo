@@ -40,3 +40,31 @@ resource "databricks_schema" "gold" {
   name         = "gold"
   comment      = "Aggregates, features, and ML outputs"
 }
+
+# --------------------------
+# Volumes — streaming checkpoint storage
+# --------------------------
+
+resource "databricks_volume" "bronze_checkpoints" {
+  catalog_name = databricks_catalog.iot.name
+  schema_name  = databricks_schema.bronze.name
+  name         = "checkpoints"
+  volume_type  = "MANAGED"
+  comment      = "Streaming checkpoints for bronze layer"
+}
+
+resource "databricks_volume" "silver_checkpoints" {
+  catalog_name = databricks_catalog.iot.name
+  schema_name  = databricks_schema.silver.name
+  name         = "checkpoints"
+  volume_type  = "MANAGED"
+  comment      = "Streaming checkpoints for silver layer"
+}
+
+resource "databricks_volume" "gold_checkpoints" {
+  catalog_name = databricks_catalog.iot.name
+  schema_name  = databricks_schema.gold.name
+  name         = "checkpoints"
+  volume_type  = "MANAGED"
+  comment      = "Streaming checkpoints for gold layer"
+}

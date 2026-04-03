@@ -22,7 +22,7 @@ clean = (
 )
 
 silver_table = "iot.silver.sensor_clean"
-checkpoint = "/mnt/checkpoints/iot/silver/sensor_clean"
+checkpoint = "/Volumes/iot/silver/checkpoints/sensor_clean"
 
 (
     clean.writeStream

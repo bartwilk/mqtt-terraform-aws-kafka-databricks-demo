@@ -33,7 +33,7 @@ agg = (
 )
 
 gold_table = "iot.gold.device_metrics"
-checkpoint = "/mnt/checkpoints/iot/gold/device_metrics"
+checkpoint = "/Volumes/iot/gold/checkpoints/device_metrics"
 
 (
     agg.writeStream

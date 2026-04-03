@@ -49,7 +49,7 @@ parsed = (
 )
 
 bronze_table = "iot.bronze.sensor_events"
-checkpoint = "/mnt/checkpoints/iot/bronze/sensor_events"
+checkpoint = "/Volumes/iot/bronze/checkpoints/sensor_events"
 
 (
     parsed
