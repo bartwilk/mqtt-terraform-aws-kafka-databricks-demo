@@ -42,8 +42,8 @@ jobs:
             /tmp/aws/install --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli"
           fi
 
-          # Ensure pip is available, then install Kafka client
-          python3 -m ensurepip --upgrade 2>/dev/null || true
+          # Install pip and Kafka client
+          curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3
           python3 -m pip install --quiet confluent-kafka
 
       - name: Configure AWS credentials (OIDC)
