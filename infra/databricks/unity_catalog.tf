@@ -16,11 +16,8 @@ resource "databricks_storage_credential" "unity_catalog" {
 # --------------------------
 
 resource "databricks_catalog" "iot" {
-  name         = "iot"
-  comment      = "IoT streaming data catalog"
-  storage_root = var.catalog_storage_root
-
-  depends_on = [databricks_storage_credential.unity_catalog]
+  name    = "iot"
+  comment = "IoT streaming data catalog"
 }
 
 resource "databricks_schema" "bronze" {
