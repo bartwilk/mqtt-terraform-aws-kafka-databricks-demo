@@ -270,6 +270,12 @@ data "aws_iam_policy_document" "app_deploy" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = ["*"]
   }
+  # Decrypt KMS-encrypted secrets (MSK SASL credentials)
+  statement {
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_policy" "app_deploy" {
