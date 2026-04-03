@@ -12,7 +12,8 @@ resource "databricks_cluster" "iot_streaming" {
   node_type_id            = data.databricks_node_type.small.id
   num_workers             = 2
   autotermination_minutes = 60
-  data_security_mode      = "USER_ISOLATION"
+  data_security_mode      = "SINGLE_USER"
+  single_user_name        = data.databricks_current_user.me.user_name
 
   spark_conf = {
     "spark.databricks.delta.preview.enabled" = "true"
